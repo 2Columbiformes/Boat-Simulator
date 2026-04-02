@@ -4,4 +4,4 @@ def twoSum(nums, target):
 
     for i, n in enumerate(nums):
         pass
-    return[]
+    pass
