@@ -1,6 +1,8 @@
 import math
 import pygame
+import sys
 import numpy as np
+import random
 
 from water import (WaterGrid, WIDTH, HEIGHT, GRID_W, GRID_H,
                    CELL_W, CELL_H, FPS,
@@ -10,6 +12,8 @@ from water import (WaterGrid, WIDTH, HEIGHT, GRID_W, GRID_H,
 from entity import Entity
 from weapon import Projectile
 from enemy import Enemy
+from bullet import BulletVisual
+from player_visual import PlayerVisual
 
 # ── Collision constants (kept here as they belong to the game loop) ────────────
 RESTITUTION      = 1.0
@@ -85,15 +89,16 @@ class WaterGame:
         self.entities.append(e)
         return e
 
-    def add_enemy(self, enemy: Enemy) -> Enemy:
-        """Register an Enemy; its inner Entity is automatically added to physics."""
+    def add_enemy(self, enemy):
         self.enemies.append(enemy)
-        self.entities.append(enemy.entity)
+        # This is the crucial fix: just append 'enemy', not 'enemy.entity'
+        self.entities.append(enemy)
         return enemy
 
     # ── Main loop ──────────────────────────────────────────────────────────────
     def run(self) -> str:
         dt = 1.0 / self.fps
+        pygame.event.clear()
         while self.running:
             self._handle_events()
             self._handle_input()
@@ -114,7 +119,8 @@ class WaterGame:
             if self._frame % self.fps == 0:
                 self._print_positions()
             self.clock.tick(self.fps)
-        pygame.quit()
+            
+        # pygame.quit() is gone from here so the window stays alive for the menu!
         return self._result or "quit"
 
     # ── Per-frame printing ─────────────────────────────────────────────────────
@@ -180,17 +186,29 @@ class WaterGame:
                                  self.height // 2 + 50))
         pygame.display.flip()
         pygame.time.wait(400)
+        
+        # Clear the queue so we don't accidentally skip the menu
+        pygame.event.clear() 
+        
         waiting = True
         while waiting:
             for event in pygame.event.get():
-                if event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN, pygame.QUIT):
+                if event.type == pygame.QUIT:
+                    pygame.quit()
+                    sys.exit()
+                if event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN):
                     waiting = False
+        
+        # Crucial: Clear again so the next level doesn't "see" the click 
+        # that closed this overlay as a "fire" or "click" command.
+        pygame.event.clear()
 
     # ── Events & input ─────────────────────────────────────────────────────────
     def _handle_events(self):
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
-                self.running = False
+                pygame.quit() # Cleanly shut down pygame
+                sys.exit()    # Kill the entire Python process
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = event.pos
                 # Left click fires the player weapon (if any); right click always splashes
@@ -299,8 +317,12 @@ class WaterGame:
     # ── Enemy AI ───────────────────────────────────────────────────────────────
     def _update_enemies(self, dt: float):
         for enemy in self.enemies:
-            new_projs = enemy.update(dt, self.player, self.water)
-            self.projectiles.extend(new_projs)
+            # Only update living enemies
+            if enemy.alive:
+                new_projs = enemy.tick_ai(self.player, dt)
+                # ADD THIS IF STATEMENT: Prevents crash if tick_ai returns None
+                if new_projs: 
+                    self.projectiles.extend(new_projs)
 
     # ── Projectiles ────────────────────────────────────────────────────────────
     def _torus_dist(self, ax, ay, bx, by) -> float:
@@ -337,7 +359,7 @@ class WaterGame:
                     continue
                 if self._torus_dist(proj.x, proj.y, e.x, e.y) <= e.radius:
                     # Compute actual damage
-                    if proj.shotgun:
+                    if getattr(proj, "shotgun", False):
                         traveled = self._torus_dist(proj.origin_x, proj.origin_y,
                                                     proj.x, proj.y)
                         dmg = proj.damage * max(0.1, 1.0 - traveled / proj.shotgun_range)
@@ -385,13 +407,34 @@ class WaterGame:
             pygame.draw.circle(self.screen, (80, 80, 80), (sx, sy), r)
             pygame.draw.circle(self.screen, (50, 50, 50), (sx, sy), r, 2)
             return
-        pygame.draw.circle(self.screen, e.color, (sx, sy), r)
+            
+        # --- NEW CODE: Player Boat vs Enemy Circles ---
         if e.controllable:
-            pygame.draw.circle(self.screen, (255, 255, 255), (sx, sy), r, 2)
-        elif e.static:
-            pygame.draw.circle(self.screen, (200, 180, 140), (sx, sy), r, 2)
+            # 1. Get the player's aim angle based on mouse position
+            mx, my = pygame.mouse.get_pos()
+            aim_angle = math.atan2(my - sy, mx - sx)
+            
+            # 2. Get the name of the equipped weapon
+            weapon_name = type(self.player_weapon).__name__ if self.player_weapon else "pistol"
+            
+            # 3. Draw the player boat and turret
+            PlayerVisual.draw(
+                screen=self.screen,
+                x=sx, 
+                y=sy, 
+                angle=aim_angle, 
+                weapon_type=weapon_name
+            )
         else:
-            pygame.draw.circle(self.screen, (180, 180, 180), (sx, sy), r, 1)
+            # Draw standard circles for enemies and static obstacles
+            pygame.draw.circle(self.screen, e.color, (sx, sy), r)
+            if e.static:
+                pygame.draw.circle(self.screen, (200, 180, 140), (sx, sy), r, 2)
+            else:
+                pygame.draw.circle(self.screen, (180, 180, 180), (sx, sy), r, 1)
+        # ----------------------------------------------
+
+        # Draw Health Bars and Names (Kept unchanged)
         if not e.static:
             bar_w = max(r * 2, 20);  bar_h = 5
             bx    = sx - bar_w // 2;  by = sy - r - 12
@@ -431,61 +474,144 @@ class WaterGame:
                     self._draw_entity_at(e, sx, sy)
 
         # Projectiles — same ghost logic
+        # --- (Inside _render method) ---
+        # Projectiles — Rendered using specialized visuals from bullet.py
         for proj in self.projectiles:
-            px, py = int(proj.x), int(proj.y)
-            pr = 5 if proj.explodes else 3
+            px, py = proj.x, proj.y
+            pr = int(proj.radius or 3)
+            p_color = proj.color or (255, 255, 255)
+
+            # Look up the weapon type from the Projectile dataclass
+            fired_by = getattr(proj, "weapon_type", "standard") 
+
             for ox in ox_offsets:
-                sx = px + ox
-                if sx + pr < 0 or sx - pr >= self.width: continue
                 for oy in (0, self.height, -self.height):
-                    sy = py + oy
-                    if sy + pr < 0 or sy - pr >= self.height: continue
-                    pygame.draw.circle(self.screen, proj.color, (sx, sy), pr)
+                    sx, sy = px + ox, py + oy
+                    if -20 < sx < self.width + 20 and -20 < sy < self.height + 20:
+                        
+                        # Fix: explicitly set is_explosion=False so the custom rocket draws!
+                        BulletVisual.draw(
+                            screen=self.screen, 
+                            x=sx, 
+                            y=sy, 
+                            color=p_color, 
+                            radius=pr, 
+                            velocity=(proj.vx, proj.vy), 
+                            is_explosion=False,          # <--- THIS IS THE FIX
+                            weapon_type=fired_by
+                        )
 
-        # Flag
-        if self.flag_pos is not None:
-            fx, fy   = int(self.flag_pos[0]), int(self.flag_pos[1])
-            pygame.draw.line(self.screen, (220, 220, 220), (fx, fy + 16), (fx, fy - 20), 3)
-            pygame.draw.polygon(self.screen, (50, 220, 80),
-                                [(fx, fy - 20), (fx + 18, fy - 13), (fx, fy - 6)])
-            pulse_r = int(self.flag_radius) + 4 + int(4 * math.sin(self._frame * 0.15))
-            pygame.draw.circle(self.screen, (50, 220, 80), (fx, fy), pulse_r, 2)
+        # Explosions — Re-designed to match the vector burst pattern from image_0075f5.png
+        # Layers: Translucent Cyan splinters -> Red spikes -> Orange spikes -> Hot core
+        for ex in self._explosions:
+            progress = 1.0 - (ex["t"] / ex["max_t"])
+            alpha = max(0, min(255, int(255 * (ex["t"] / ex["max_t"]))))
+            
+            # The burst extends slightly past the max radius due to jagged points
+            draw_max_r = int(ex["max_r"] * 1.3)
+            s = pygame.Surface((draw_max_r * 2, draw_max_r * 2), pygame.SRCALPHA)
+            cx, cy = draw_max_r, draw_max_r # Local center on surface
 
-        # Explosion flashes
-        for exp in self._explosions:
-            frac = exp["t"] / exp["max_t"]
-            r    = int(exp["r"] + (exp["max_r"] - exp["r"]) * (1 - frac))
-            alpha = int(200 * frac)
-            surf  = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
-            pygame.draw.circle(surf, (255, 140, 20, alpha), (r, r), r)
-            self.screen.blit(surf, (int(exp["x"]) - r, int(exp["y"]) - r))
+            # Colors from the digital burst image
+            color_cyan = (0, 220, 255)
+            color_red = (220, 40, 20)
+            color_orange = (255, 140, 0)
+            color_white_hot = (255, 255, 230)
 
-        # Player weapon HUD (bottom-left)
-        if self.player_weapon:
-            wname  = type(self.player_weapon).__name__
-            max_cd = 1.0 / max(self.player_weapon.fire_rate, 1e-9)
-            frac   = 1.0 - min(self.player_weapon._cooldown / max_cd, 1.0)
-            bar_w, bar_h = 120, 8
-            bx = 10;  by = self.height - 30
-            pygame.draw.rect(self.screen, (40, 40, 40),    (bx, by, bar_w, bar_h))
-            fill_c = (50, 220, 80) if self.player_weapon.ready else (220, 160, 30)
-            pygame.draw.rect(self.screen, fill_c,           (bx, by, int(bar_w * frac), bar_h))
-            pygame.draw.rect(self.screen, (150, 150, 150),  (bx, by, bar_w, bar_h), 1)
-            lbl = self._font.render(wname, True, (220, 220, 220))
-            self.screen.blit(lbl, (bx, by - 16))
+            # --- LAYER 1: Cyan splinters (Outer Translucent Spikes) ---
+            r1 = int(ex["r"] + (ex["max_r"] - ex["r"]) * progress)
+            # Lines fade out slightly slower than filled areas
+            line_alpha = max(0, min(255, int(alpha * 1.2))) 
+            
+            num_splinters = 20
+            pygame.draw.circle(s, (color_cyan[0], color_cyan[1], color_cyan[2], alpha // 10), (cx, cy), r1)
+            
+            # Use fixed random angles per explosion ID/time to prevent vibration (using t as seed)
+            rng_seed = int(ex["x"] * 1000 + ex["y"]) # Create a mostly unique integer seed
+            random.seed(rng_seed) 
+            
+            for _ in range(num_splinters):
+                angle = random.uniform(0, 2 * math.pi)
+                # Deviate length of each splinter
+                l_dev = random.uniform(0.7, 1.2)
+                l = int(r1 * l_dev)
+                ex_pt = (cx + math.cos(angle) * l, cy + math.sin(angle) * l)
+                
+                # Deviate start distance from core
+                s_dev = random.uniform(0.1, 0.4)
+                sl = int(r1 * s_dev)
+                st_pt = (cx + math.cos(angle) * sl, cy + math.sin(angle) * sl)
+                
+                # Outer cyan lines (thinner)
+                pygame.draw.line(s, (color_cyan[0], color_cyan[1], color_cyan[2], line_alpha // 2), st_pt, ex_pt, 2)
+                
+                # Inner segment is orange (matching image where base of splinters is hot)
+                il = int(r1 * (s_dev + random.uniform(0.1, 0.3)))
+                in_pt = (cx + math.cos(angle) * il, cy + math.sin(angle) * il)
+                pygame.draw.line(s, (color_orange[0], color_orange[1], color_orange[2], line_alpha), st_pt, in_pt, 2)
 
-        # Survival HUD
+            # Reset random for filled shapes to maintain static jaggedness
+            random.seed(rng_seed) 
+
+            # --- LAYER 2: Main Fireball (Jagged Polygon for Red/Orange Core) ---
+            # Using polygons instead of circles creates the digital vector fire look
+            num_jagged = 16
+            
+            def get_jagged_pts(base_r, irregularity):
+                """Helper to make an irregular polygon."""
+                pts = []
+                for i in range(num_jagged):
+                    t_angle = i * (2 * math.pi / num_jagged)
+                    dev = random.uniform(1.0 - irregularity, 1.0 + irregularity)
+                    tr = max(2, int(base_r * dev))
+                    tx = cx + math.cos(t_angle) * tr
+                    ty = cy + math.sin(t_angle) * tr
+                    pts.append((tx, ty))
+                return pts
+
+            # Outer jagged Fire (Red)
+            r_red = max(1, int(r1 * 0.8))
+            red_pts = get_jagged_pts(r_red, 0.25)
+            if len(red_pts) > 2:
+                pygame.draw.polygon(s, (color_red[0], color_red[1], color_red[2], alpha), red_pts)
+
+            # Mid jagged Fire (Orange)
+            r_orange = max(1, int(r1 * 0.6))
+            orange_pts = get_jagged_pts(r_orange, 0.2)
+            if len(orange_pts) > 2:
+                pygame.draw.polygon(s, (color_orange[0], color_orange[1], color_orange[2], alpha), orange_pts)
+
+            # Reset random one last time for core
+            random.seed(rng_seed) 
+
+            # --- LAYER 3: White Hot Core ---
+            # Concentrated white hot energy center, fades faster than smoke
+            core_alpha = int(255 * max(0.0, min(1.0, 1.5 - (progress * 2.5))))
+            if core_alpha > 0:
+                r_core = max(1, int(r1 * 0.35))
+                pygame.draw.circle(s, (color_white_hot[0], color_white_hot[1], color_white_hot[2], core_alpha), (cx, cy), r_core)
+                
+                # Small spike detail for core (White)
+                num_spikes = 6
+                sl_core = int(r_core * 1.5)
+                for _ in range(num_spikes):
+                    angle = random.uniform(0, 2 * math.pi)
+                    pt_far = (cx + math.cos(angle) * sl_core, cy + math.sin(angle) * sl_core)
+                    pygame.draw.line(s, (color_white_hot[0], color_white_hot[1], color_white_hot[2], core_alpha), (cx, cy), pt_far, 3)
+
+            # Draw to screen (with proper screen-wrap offset self-managed by surface size)
+            # Because surface is now larger (draw_max_r), use that to offset blit
+            self.screen.blit(s, (int(ex["x"]) - draw_max_r, int(ex["y"]) - draw_max_r))
+
+        # Flag / Goal
+        if self.flag_pos:
+            fx, fy = self.flag_pos
+            pygame.draw.circle(self.screen, (255, 255, 0), (int(fx), int(fy)), int(self.flag_radius), 2)
+
+        # UI Overlay (Timer/Score)
         if self.survival:
-            mins  = int(self._survival_t) // 60
-            secs  = int(self._survival_t) % 60
-            tc    = (255, 80, 80) if self._survival_t < 30 else (255, 220, 80)
-            hud   = self._font.render(f"Survive: {mins}:{secs:02d}", True, tc)
-            self.screen.blit(hud, (self.width // 2 - hud.get_width() // 2, 8))
-            # Left-edge danger vignette when player is close to the deadly left boundary
-            if self.player and self.player.x < 150:
-                alpha = int(180 * max(0.0, 1.0 - self.player.x / 150.0))
-                edge  = pygame.Surface((60, self.height), pygame.SRCALPHA)
-                edge.fill((200, 20, 20, alpha))
-                self.screen.blit(edge, (0, 0))
+            timer_text = self._font.render(f"TIME: {int(self._survival_t)}s", True, (255, 255, 255))
+            self.screen.blit(timer_text, (20, 20))
 
+        # IMPORTANT: This must be at the very end of the loop in run() or end of _render
         pygame.display.flip()

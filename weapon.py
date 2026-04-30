@@ -2,7 +2,6 @@ import math
 import random
 from dataclasses import dataclass, field
 
-
 @dataclass
 class Projectile:
     """A single fired projectile living on the torus."""
@@ -12,17 +11,21 @@ class Projectile:
     vy:               float
     damage:           float
     lifetime:         float          # seconds remaining before despawn
+    radius:           float = 3.0  
     pierce:           bool  = False  # passes through entities without dying
     explodes:         bool  = False  # triggers AoE on death
     explosion_radius: float = 0.0
     explosion_damage: float = 0.0
-    fuse:             float = 0.0   # bazooka: also explodes after this many extra seconds
+    fuse:             float = 0.0    # bazooka: also explodes after this many extra seconds
     color:            tuple = (255, 220, 50)
     # origin stored for shotgun distance falloff
     origin_x:         float = 0.0
     origin_y:         float = 0.0
     shotgun:          bool  = False
     shotgun_range:    float = 280.0
+    
+    weapon_type:      str   = "standard" # <--- ADDED THIS LINE
+    
     hits: set = field(default_factory=set, repr=False)  # id(entity) already struck
 
     @property
@@ -66,14 +69,19 @@ class Weapon:
 # ── Pistol ─────────────────────────────────────────────────────────────────────
 
 class Pistol(Weapon):
-    """Single accurate shot."""
-    fire_rate = 1.0
+    cooldown = 0.35 
 
     def _make_projectiles(self, x, y, angle):
-        vx, vy = self._vel(250.0, angle)
-        return [Projectile(x=x, y=y, vx=vx, vy=vy,
-                           damage=20.0, lifetime=2.5,
-                           color=(255, 255, 100))]
+        vx, vy = self._vel(500.0, angle) 
+        digital_green = (180, 255, 180)
+
+        return [Projectile(
+            x=x, y=y, vx=vx, vy=vy,
+            damage=15.0, lifetime=2.0,
+            color=digital_green,
+            radius=4.0,
+            weapon_type="pistol" # Pass the weapon type!
+        )]
 
 
 # ── Machine Gun ────────────────────────────────────────────────────────────────
@@ -86,7 +94,8 @@ class MachineGun(Weapon):
         vx, vy = self._vel(280.0, angle, spread=math.radians(18))
         return [Projectile(x=x, y=y, vx=vx, vy=vy,
                            damage=8.0, lifetime=1.8,
-                           color=(255, 180, 50))]
+                           color=(255, 180, 50),
+                           weapon_type="machine_gun")] # Pass the weapon type!
 
 
 # ── Sniper ─────────────────────────────────────────────────────────────────────
@@ -100,7 +109,8 @@ class Sniper(Weapon):
         return [Projectile(x=x, y=y, vx=vx, vy=vy,
                            damage=55.0, lifetime=3.0,
                            pierce=True,
-                           color=(180, 80, 255))]
+                           color=(180, 80, 255),
+                           weapon_type="sniper")] # Pass the weapon type!
 
 
 # ── Bazooka ────────────────────────────────────────────────────────────────────
@@ -117,7 +127,8 @@ class Bazooka(Weapon):
                            explosion_radius=80.0,
                            explosion_damage=60.0,
                            fuse=3.0,
-                           color=(255, 100, 30))]
+                           color=(255, 100, 30),
+                           weapon_type="rocket_launcher")] # Pass the weapon type!
 
 
 # ── Shotgun ────────────────────────────────────────────────────────────────────
@@ -142,5 +153,6 @@ class Shotgun(Weapon):
                 shotgun=True, shotgun_range=self._range,
                 origin_x=x, origin_y=y,
                 color=(255, 140, 60),
+                weapon_type="shotgun" # Pass the weapon type!
             ))
         return projs

@@ -19,11 +19,11 @@ class WeaponMenu:
     # TYPE YOUR CUSTOM DESCRIPTIONS HERE! 
     # Keep them somewhat brief so they fit nicely on the screen.
     WEAPON_CLASSES = [
-        ("pistol", Pistol, "Just your basic pistol shooting basic bullets."),
+        ("pistol", Pistol, "Just a basic pistol for basic combat."),
         ("machine_gun", MachineGun, "Sprays bullets everywhere. Low accuracy."),
         ("sniper", Sniper, "Slow, but pierces enemies with massive damage."),
-        ("bazooka", Bazooka, "Fires an explosive shell. Watch the blast radius!"),
-        ("shotgun", Shotgun, "Deadly at close range. Weak at long range.")
+        ("bazooka", Bazooka, "Rest in peace my granny she got hit by a bazooka."),
+        ("shotgun", Shotgun, "Deadly at close range. Spreads 7 pellets.")
     ]
 
     def __init__(self, current_weapon: str, width: int = WIDTH, height: int = HEIGHT, fps: int = FPS):
@@ -148,11 +148,152 @@ class WeaponMenu:
             name_txt = self._name_font.render(weapon["name"], True, (255, 255, 255))
             self.screen.blit(name_txt, (cx - name_txt.get_width() // 2, cy - 195))
 
-            # Visual Box
-            art_rect = pygame.Rect(cx - 120, cy - 140, 240, 100)
+            # --- UNIQUE WEAPON DESIGNS ---
+            art_rect = pygame.Rect(cx - 100, cy - 120, 200, 80)
             pygame.draw.rect(self.screen, (10, 20, 40), art_rect, border_radius=10)
-            pygame.draw.ellipse(self.screen, weapon["color"], (cx - 60, cy - 100, 120, 30))
-            pygame.draw.rect(self.screen, weapon["color"], (cx - 40, cy - 85, 20, 40)) 
+            
+            w_id = weapon["id"]
+            color = weapon["color"]
+
+            if w_id == "pistol":
+            # --- Ultra-compact Pistol to fit strictly inside the box ---
+            # Shifted 'cy' offsets upward to stay clear of the bottom edge
+    
+                # 1. Main Slide (Top part)
+                pygame.draw.rect(self.screen, (70, 70, 75), (cx - 40, cy - 105, 50, 25))     # Back half
+                pygame.draw.rect(self.screen, (100, 100, 105), (cx + 10, cy - 105, 35, 20)) # Front half
+                pygame.draw.rect(self.screen, (160, 170, 180), (cx + 45, cy - 105, 4, 20))  # Muzzle tip
+
+                # 2. Grip (Shortened to stay inside the box)
+                pygame.draw.rect(self.screen, (40, 40, 45), (cx - 40, cy - 80, 15, 30))
+                # Compact Grip Details
+                for i in range(3):
+                    pygame.draw.rect(self.screen, (80, 90, 100), (cx - 38, cy - 76 + (i * 8), 11, 4))
+
+                # 3. Trigger Guard & Red Trigger
+                pygame.draw.rect(self.screen, (30, 30, 35), (cx - 25, cy - 80, 12, 12)) 
+                pygame.draw.rect(self.screen, (220, 50, 50), (cx - 21, cy - 77, 3, 6))   
+
+                # 4. Slide Details (Top notches)
+                pygame.draw.rect(self.screen, (130, 130, 135), (cx + 18, cy - 102, 5, 2))
+                pygame.draw.rect(self.screen, (130, 130, 135), (cx + 30, cy - 102, 5, 2))
+
+                # 5. Lanyard Ring (Higher and smaller)
+                pygame.draw.circle(self.screen, (200, 210, 220), (cx - 32, cy - 48), 4, 2)
+
+            elif w_id == "machine_gun":
+            # --- Ultra-compact Machine Gun to fit strictly inside the box ---
+    
+                # 1. Rear Stock (Dark Grey)
+                # Positioned higher up to clear the bottom text
+                pygame.draw.rect(self.screen, (50, 50, 55), (cx - 80, cy - 100, 20, 25), border_radius=2)
+                # Iron sight detail
+                pygame.draw.rect(self.screen, (30, 30, 35), (cx - 68, cy - 108, 8, 10))
+
+                # 2. Main Receiver (The bulky blue block)
+                # Using the navy blue-grey from your image
+                pygame.draw.rect(self.screen, (55, 75, 95), (cx - 60, cy - 105, 60, 45), border_radius=3)
+                pygame.draw.rect(self.screen, (75, 95, 115), (cx - 60, cy - 105, 50, 8)) # Shine
+
+                # 3. Perforated Barrel (Grey)
+                # Shortened width to 80 pixels to stay safe
+                pygame.draw.rect(self.screen, (120, 135, 145), (cx, cy - 92, 80, 16))
+                # Muzzle tip
+                pygame.draw.rect(self.screen, (150, 165, 175), (cx + 75, cy - 95, 10, 22), border_radius=1)
+    
+                # Cooling Holes
+                for i in range(4):
+                    pygame.draw.rect(self.screen, (40, 55, 65), (cx + 10 + (i * 15), cy - 88, 6, 8))
+
+                # 4. Vertical Handle & Base (The "Stand")
+                # Significantly shortened to avoid the box edge
+                pygame.draw.rect(self.screen, (45, 65, 85), (cx - 35, cy - 60, 12, 12)) # Short neck
+                pygame.draw.rect(self.screen, (30, 30, 30), (cx - 55, cy - 48, 50, 5), border_radius=2) # Flat base
+
+            elif w_id == "sniper":
+            # --- Ultra-compact Sniper to fit strictly inside the box ---
+    
+                # 1. The Stock & Rear (Orange/Bronze tones from image)
+                # Positioned at cx - 90 to give room for the long barrel
+                pygame.draw.rect(self.screen, (210, 105, 30), (cx - 95, cy - 95, 35, 20), border_radius=2) # Stock
+                pygame.draw.rect(self.screen, (150, 75, 0), (cx - 95, cy - 80, 10, 20), border_radius=2)   # Butt pad
+                # Yellow wire/detail on the back
+                pygame.draw.arc(self.screen, (255, 215, 0), (cx - 100, cy - 90, 15, 30), 3.14, 4.71, 2)
+
+                # 2. Main Receiver (Central Block)
+                pygame.draw.rect(self.screen, (205, 127, 50), (cx - 60, cy - 100, 45, 38), border_radius=2) # Main body
+                pygame.draw.rect(self.screen, (40, 40, 45), (cx - 55, cy - 75, 12, 12))                   # Tiny trigger grip
+
+                # 3. High-Power Scope (Top)
+                pygame.draw.rect(self.screen, (45, 45, 50), (cx - 55, cy - 112, 40, 12), border_radius=1) # Scope body
+                pygame.draw.rect(self.screen, (100, 100, 110), (cx - 40, cy - 118, 5, 6))                 # Dial
+
+    #            4. Long Precision Barrel
+                # Using the light grey metallic color from reference
+                pygame.draw.rect(self.screen, (140, 150, 160), (cx - 15, cy - 93, 110, 10))
+                # Muzzle Brake (The tip)
+                pygame.draw.rect(self.screen, (100, 110, 120), (cx + 90, cy - 98, 8, 20))
+                pygame.draw.rect(self.screen, (60, 60, 65), (cx + 98, cy - 93, 6, 10))
+
+            #    5. Stabilizer Stand (Bottom)
+                # Kept very short to stay inside the box bounds
+                pygame.draw.rect(self.screen, (55, 70, 90), (cx - 30, cy - 62, 12, 12))                   # Neck
+                pygame.draw.rect(self.screen, (40, 50, 65), (cx - 50, cy - 52, 50, 5), border_radius=2)   # Base 
+
+            elif w_id == "bazooka":
+            # --- Ultra-compact Bazooka to fit strictly inside the box ---
+    
+                # 1. Main Launch Tube (Grey)
+                # Scaled to stay away from the name above and text below
+                pygame.draw.rect(self.screen, (100, 115, 130), (cx - 85, cy - 95, 170, 30), border_radius=2)
+                # Tube End Caps (Darker Grey)
+                pygame.draw.rect(self.screen, (60, 75, 90), (cx - 95, cy - 100, 15, 40), border_radius=1)
+                pygame.draw.rect(self.screen, (60, 75, 90), (cx + 75, cy - 100, 15, 40), border_radius=1)
+
+                # 2. Top Mounted Sight & Gauge (Details from reference)
+                # Round Gauge (Light Grey with a red 'needle' line)
+                pygame.draw.circle(self.screen, (200, 205, 210), (cx - 15, cy - 100), 10)
+                pygame.draw.line(self.screen, (200, 50, 50), (cx - 15, cy - 100), (cx - 15, cy - 108), 2)
+                # Periscope Sight
+                pygame.draw.rect(self.screen, (30, 30, 35), (cx + 5, cy - 112, 10, 18))
+                pygame.draw.rect(self.screen, (0, 200, 255), (cx + 12, cy - 110, 4, 4)) # Blue lens
+
+                # 3. Rear Mechanism (Grey block with red/black detail)
+                pygame.draw.rect(self.screen, (150, 155, 160), (cx + 50, cy - 90, 25, 20))
+                pygame.draw.rect(self.screen, (200, 50, 50), (cx + 70, cy - 83, 4, 6)) # Red indicator
+
+                # 4. Under-barrel Stand/Grips (Bottom)
+                # Keeping these very short to avoid hitting the description text
+                pygame.draw.rect(self.screen, (55, 75, 95), (cx - 45, cy - 65, 10, 20)) # Front leg
+                pygame.draw.rect(self.screen, (55, 75, 95), (cx + 5, cy - 65, 10, 20))  # Back leg
+                pygame.draw.rect(self.screen, (30, 30, 35), (cx - 55, cy - 45, 80, 6), border_radius=2) # Base plate
+
+            elif w_id == "shotgun":
+    # --- Scaling adjustment: Shorter and more compact to fit the inner box ---
+    
+                # 1. Wooden Stock (Left)
+                pygame.draw.rect(self.screen, (139, 69, 19), (cx - 85, cy - 95, 30, 25), border_radius=2)  # Main stock
+                pygame.draw.rect(self.screen, (100, 50, 15), (cx - 85, cy - 85, 15, 20), border_radius=2)  # Stock butt
+
+                # 2. Heavy Receiver (Center)
+                pygame.draw.rect(self.screen, (65, 65, 70), (cx - 55, cy - 100, 45, 35), border_radius=2)
+                pygame.draw.rect(self.screen, (45, 45, 50), (cx - 55, cy - 85, 45, 4)) # Detail line
+
+                # 3. The Barrels (Right)
+                # Main top barrel
+                pygame.draw.rect(self.screen, (100, 100, 105), (cx - 10, cy - 95, 95, 16))
+                pygame.draw.rect(self.screen, (140, 140, 145), (cx - 10, cy - 95, 95, 4)) # Shine
+                # Bottom tube
+                pygame.draw.rect(self.screen, (75, 75, 80), (cx - 10, cy - 79, 80, 8))
+
+                # 4. Cooling Vents (Top)
+                for i in range(3):
+                    pygame.draw.rect(self.screen, (180, 180, 185), (cx + 5 + (i * 12), cy - 100, 6, 3))
+
+                # 5. Vertical Foregrip (Bottom)
+                # Kept short so it doesn't bleed out of the dark blue box
+                pygame.draw.rect(self.screen, (40, 40, 40), (cx - 40, cy - 65, 10, 15))      # Neck
+                pygame.draw.rect(self.screen, (30, 30, 30), (cx - 50, cy - 50, 30, 6), border_radius=2) # Base
 
             # Custom Typed Description
             desc_txt = self._desc_font.render(weapon["desc"], True, (160, 220, 180))

@@ -1,158 +1,151 @@
 import math
-import random
-from dataclasses import dataclass, field
-
 from entity import Entity
-from weapon import Weapon, Projectile, Pistol, MachineGun, Sniper, Bazooka, Shotgun
-from water import WIDTH, HEIGHT
+from weapon import Pistol, MachineGun, Sniper, Shotgun, Bazooka, Projectile
 
+class Enemy(Entity):
+    def __init__(self, x, y, mass=1.0, color=(200, 50, 50), radius=15, hp=50, name="Enemy"):
+        # Initialize the base entity properties
+        super().__init__(x=x, y=y, mass=mass, color=color, radius=radius)
+        self.hp = hp
+        self.max_hp = hp
+        self.name = name
+        self.controllable = False
+        
+        # Weapon and AI logic parameters
+        self.weapon = None
+        self.speed = 100.0
+        self.optimal_range = 200.0
 
-def _torus_delta(ax, ay, bx, by):
-    """Shortest signed (dx, dy) from a to b on the torus."""
-    dx = bx - ax;  dx -= WIDTH  * round(dx / WIDTH)
-    dy = by - ay;  dy -= HEIGHT * round(dy / HEIGHT)
-    return dx, dy
-
-
-def _torus_dist(ax, ay, bx, by) -> float:
-    dx, dy = _torus_delta(ax, ay, bx, by)
-    return math.hypot(dx, dy)
-
-
-def _torus_angle(ax, ay, bx, by) -> float:
-    dx, dy = _torus_delta(ax, ay, bx, by)
-    return math.atan2(dy, dx)
-
-
-# ── Enemy wrapper ──────────────────────────────────────────────────────────────
-
-@dataclass
-class Enemy:
-    """Wraps an Entity with a weapon and AI behaviour."""
-    entity:   Entity
-    weapon:   Weapon
-    ai_type:  str            # "drift"|"chase"|"snipe"|"artillery"|"patrol"
-    patrol_cx: float = 0.0   # patrol centre x  (only used by "patrol" AI)
-    patrol_cy: float = 0.0
-    _angle:    float = field(default=0.0, repr=False)
-    _drift_timer: float = field(default=0.0, repr=False)
-
-    def update(self, dt: float, target: Entity, water) -> list[Projectile]:
-        """Advance AI, tick weapon cooldown, return any new projectiles."""
-        self.weapon.tick(dt)
-        if not self.entity.alive or (target is not None and not target.alive):
+    def tick_ai(self, player, dt):
+        if not player or not player.alive:
             return []
 
-        tx = target.x if target else self.entity.x
-        ty = target.y if target else self.entity.y
-        dist = _torus_dist(self.entity.x, self.entity.y, tx, ty)
-        angle_to = _torus_angle(self.entity.x, self.entity.y, tx, ty)
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy)
+        if dist == 0: dist = 0.0001
+        
+        dir_x = dx / dist
+        dir_y = dy / dist
+        
+        # Movement logic
+        if dist > self.optimal_range + 20:
+            self.vx += dir_x * self.speed * dt
+            self.vy += dir_y * self.speed * dt
+        elif dist < self.optimal_range - 20:
+            self.vx -= dir_x * self.speed * dt
+            self.vy -= dir_y * self.speed * dt
 
-        if   self.ai_type == "drift":     return self._ai_drift(dt, tx, ty, dist, angle_to)
-        elif self.ai_type == "chase":     return self._ai_chase(dt, tx, ty, dist, angle_to)
-        elif self.ai_type == "snipe":     return self._ai_snipe(dt, tx, ty, dist, angle_to)
-        elif self.ai_type == "artillery": return self._ai_artillery(dt, tx, ty, dist, angle_to)
-        elif self.ai_type == "patrol":    return self._ai_patrol(dt, tx, ty, dist, angle_to)
-        return []
-
-    # ── AI implementations ────────────────────────────────────────────────────
-
-    def _ai_drift(self, dt, tx, ty, dist, angle_to):
-        """Wanders randomly; fires pistol when target is close."""
-        e = self.entity
-        self._drift_timer -= dt
-        if self._drift_timer <= 0:
-            self._angle = random.uniform(0, 2 * math.pi)
-            self._drift_timer = random.uniform(1.5, 3.5)
-        spd = 30.0
-        e.vx += math.cos(self._angle) * spd * dt
-        e.vy += math.sin(self._angle) * spd * dt
-        if dist < 300 and self.weapon.ready:
-            return self.weapon.fire(e.x, e.y, angle_to)
-        return []
-
-    def _ai_chase(self, dt, tx, ty, dist, angle_to):
-        """Steers toward target; fires machine gun continuously."""
-        e = self.entity
-        spd = 60.0
-        e.vx += math.cos(angle_to) * spd * dt
-        e.vy += math.sin(angle_to) * spd * dt
-        if self.weapon.ready:
-            return self.weapon.fire(e.x, e.y, angle_to)
-        return []
-
-    def _ai_snipe(self, dt, tx, ty, dist, angle_to):
-        """Keeps 350–550 px from target; fires sniper when aimed within ±5°."""
-        e = self.entity
-        ideal = 450.0
-        if dist < 350:
-            # back away
-            e.vx += math.cos(angle_to + math.pi) * 55.0 * dt
-            e.vy += math.sin(angle_to + math.pi) * 55.0 * dt
-        elif dist > 550:
-            e.vx += math.cos(angle_to) * 45.0 * dt
-            e.vy += math.sin(angle_to) * 45.0 * dt
-        # face the target
-        aim_err = abs(math.atan2(math.sin(angle_to - self._angle),
-                                  math.cos(angle_to - self._angle)))
-        self._angle = angle_to
-        if aim_err < math.radians(5) and self.weapon.ready:
-            return self.weapon.fire(e.x, e.y, angle_to)
-        return []
-
-    def _ai_artillery(self, dt, tx, ty, dist, angle_to):
-        """Stays 400+ px away; lobs bazookas leading the target."""
-        e = self.entity
-        if dist < 400:
-            e.vx += math.cos(angle_to + math.pi) * 50.0 * dt
-            e.vy += math.sin(angle_to + math.pi) * 50.0 * dt
-        if self.weapon.ready:
-            return self.weapon.fire(e.x, e.y, angle_to)
-        return []
-
-    def _ai_patrol(self, dt, tx, ty, dist, angle_to):
-        """Orbits its assigned centre point; fires shotgun at close range."""
-        e   = self.entity
-        # steer toward patrol centre with an orbital offset
-        self._angle += 0.6 * dt           # orbit angular velocity
-        orbit_r = 80.0
-        goal_x  = self.patrol_cx + math.cos(self._angle) * orbit_r
-        goal_y  = self.patrol_cy + math.sin(self._angle) * orbit_r
-        dx, dy  = _torus_delta(e.x, e.y, goal_x, goal_y)
-        spd     = 70.0
-        e.vx += dx / max(math.hypot(dx, dy), 1) * spd * dt
-        e.vy += dy / max(math.hypot(dx, dy), 1) * spd * dt
-        if dist < 180 and self.weapon.ready:
-            return self.weapon.fire(e.x, e.y, angle_to)
+        # Shooting logic
+        if self.weapon:
+            self.weapon.tick(dt) # Advance the cooldown timer
+            # Check if off cooldown and in range
+            if self.weapon.ready and dist < self.optimal_range * 1.5:
+                angle = math.atan2(dy, dx)
+                # IMPORTANT: This returns the bullets to the game loop
+                return self.weapon.fire(self.x, self.y, angle) 
+                
         return []
 
 
-# ── Factory helpers ────────────────────────────────────────────────────────────
+# ─── 1. The 5 Weapon-Wielding Enemies ─────────────────────────────────────────
 
-def make_drift(x: float, y: float) -> Enemy:
-    e = Entity(x=x, y=y, mass=1.5, radius=11,
-               color=(220, 60, 60), max_hp=2400, name="drifter")
-    return Enemy(entity=e, weapon=Pistol(), ai_type="drift")
+class PistolEnemy(Enemy):
+    def __init__(self, x, y):
+        super().__init__(x, y, color=(180, 255, 180), hp=50, name="Pistol Grunt")
+        self.weapon = Pistol()
+        self.optimal_range = 250.0
 
-def make_chaser(x: float, y: float) -> Enemy:
-    e = Entity(x=x, y=y, mass=1.8, radius=12,
-               color=(220, 120, 40), max_hp=2700, name="chaser")
-    return Enemy(entity=e, weapon=MachineGun(), ai_type="chase")
+class MachineGunEnemy(Enemy):
+    def __init__(self, x, y):
+        super().__init__(x, y, color=(255, 180, 50), hp=75, name="Gunner")
+        self.weapon = MachineGun()
+        self.optimal_range = 150.0
 
-def make_sniper(x: float, y: float) -> Enemy:
-    e = Entity(x=x, y=y, mass=1.2, radius=10,
-               color=(120, 60, 200), max_hp=1800, name="sniper")
-    return Enemy(entity=e, weapon=Sniper(), ai_type="snipe")
+class SniperEnemy(Enemy):
+    def __init__(self, x, y):
+        super().__init__(x, y, color=(180, 80, 255), hp=40, name="Sniper")
+        self.weapon = Sniper()
+        self.optimal_range = 450.0
+        self.speed = 60.0 # Slower moving
 
-def make_artillery(x: float, y: float) -> Enemy:
-    e = Entity(x=x, y=y, mass=3.0, radius=16,
-               color=(180, 140, 40), max_hp=3600, name="artillery")
-    return Enemy(entity=e, weapon=Bazooka(), ai_type="artillery")
+class ShotgunEnemy(Enemy):
+    def __init__(self, x, y):
+        super().__init__(x, y, color=(240, 190, 10), hp=100, name="Breacher")
+        self.weapon = Shotgun()
+        self.optimal_range = 100.0 # Wants to get very close
+        self.speed = 120.0
 
-def make_patrol(x: float, y: float, cx: float = None, cy: float = None) -> Enemy:
-    cx = cx if cx is not None else x
-    cy = cy if cy is not None else y
-    e  = Entity(x=x, y=y, mass=1.6, radius=12,
-                color=(200, 80, 160), max_hp=2550, name="patrol")
-    return Enemy(entity=e, weapon=Shotgun(), ai_type="patrol",
-                 patrol_cx=cx, patrol_cy=cy)
+class BazookaEnemy(Enemy):
+    def __init__(self, x, y):
+        super().__init__(x, y, color=(165, 150, 130), hp=120, name="Rocketeer")
+        self.weapon = Bazooka()
+        self.optimal_range = 350.0
+        self.speed = 50.0 # Heavy and slow
+
+
+# ─── 2. The Melee / Special Enemies ───────────────────────────────────────────
+
+class ChaserEnemy(Enemy):
+    def __init__(self, x, y):
+        super().__init__(x, y, color=(200, 40, 60), hp=60, name="Chaser")
+        self.optimal_range = 0.0 # Wants to touch the player
+        self.speed = 160.0       # Very fast
+
+class BomberEnemy(Enemy):
+    def __init__(self, x, y):
+        super().__init__(x, y, color=(255, 50, 50), hp=30, name="Bomber")
+        self.optimal_range = 0.0
+        self.speed = 190.0       # Fastest enemy
+        
+    def tick_ai(self, player, dt):
+        """Overrides normal AI to rush and explode."""
+        if not player or not player.alive:
+            return []
+
+        dx = player.x - self.x
+        dy = player.y - self.y
+        dist = math.hypot(dx, dy)
+        if dist == 0: dist = 0.0001
+        
+        # Always rush directly at the player
+        self.vx += (dx / dist) * self.speed * dt
+        self.vy += (dy / dist) * self.speed * dt
+        
+        # SUICIDE BOMBER TRIGGER: If touching the player, explode!
+        # (Assuming radii sum is ~30, triggering slightly earlier ensures it hits)
+        if dist < self.radius + player.radius + 15:
+            self.hp = 0 # Kill the bomber
+            
+            # Spawn a projectile with 0.0 lifetime.
+            # This makes game.py immediately detonate it on the next frame using
+            # your existing Bazooka visual effects and AoE damage!
+            return [Projectile(
+                x=self.x, y=self.y, vx=0, vy=0,
+                damage=0, lifetime=0.0,
+                explodes=True,
+                explosion_radius=120.0,
+                explosion_damage=80.0,
+                color=(255, 100, 30),
+                weapon_type="rocket_launcher" 
+            )]
+        return []
+
+
+# ─── Factory Functions (For easy importing into game.py) ──────────────────────
+
+def make_chaser(x, y): return ChaserEnemy(x, y)
+def make_bomber(x, y): return BomberEnemy(x, y)
+def make_pistol_enemy(x, y): return PistolEnemy(x, y)
+def make_gunner(x, y): return MachineGunEnemy(x, y)
+def make_sniper(x, y): return SniperEnemy(x, y)
+def make_breacher(x, y): return ShotgunEnemy(x, y)
+def make_rocketeer(x, y): return BazookaEnemy(x, y)
+
+def make_patrol(x, y, cx=0, cy=0): 
+    # This acts as a placeholder so the game doesn't crash
+    return PistolEnemy(x, y) 
+
+def make_drift(x, y): return PistolEnemy(x, y)
+def make_artillery(x, y): return BazookaEnemy(x, y)
+
