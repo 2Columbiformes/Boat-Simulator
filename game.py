@@ -13,7 +13,9 @@ from entity import Entity
 from weapon import Projectile
 from enemy import Enemy
 from bullet import BulletVisual
-from player_visual import PlayerVisual
+from player_visual import PlayerVisual    # Use your custom dynamic weapon base
+from assets import EnemyVisual            # Only get the enemies from assets
+from bullet import BulletVisual           # Get the glowing bullets
 
 # ── Collision constants (kept here as they belong to the game loop) ────────────
 RESTITUTION      = 1.0
@@ -89,9 +91,9 @@ class WaterGame:
         self.entities.append(e)
         return e
 
-    def add_enemy(self, enemy):
+    def add_enemy(self, enemy: Enemy) -> Enemy:
+        """Register an Enemy; its inner Entity is automatically added to physics."""
         self.enemies.append(enemy)
-        # This is the crucial fix: just append 'enemy', not 'enemy.entity'
         self.entities.append(enemy)
         return enemy
 
@@ -319,10 +321,9 @@ class WaterGame:
         for enemy in self.enemies:
             # Only update living enemies
             if enemy.alive:
+                # Call the new tick_ai method we wrote in enemy.py
                 new_projs = enemy.tick_ai(self.player, dt)
-                # ADD THIS IF STATEMENT: Prevents crash if tick_ai returns None
-                if new_projs: 
-                    self.projectiles.extend(new_projs)
+                self.projectiles.extend(new_projs)
 
     # ── Projectiles ────────────────────────────────────────────────────────────
     def _torus_dist(self, ax, ay, bx, by) -> float:
@@ -359,7 +360,7 @@ class WaterGame:
                     continue
                 if self._torus_dist(proj.x, proj.y, e.x, e.y) <= e.radius:
                     # Compute actual damage
-                    if getattr(proj, "shotgun", False):
+                    if proj.shotgun:
                         traveled = self._torus_dist(proj.origin_x, proj.origin_y,
                                                     proj.x, proj.y)
                         dmg = proj.damage * max(0.1, 1.0 - traveled / proj.shotgun_range)
@@ -408,33 +409,53 @@ class WaterGame:
             pygame.draw.circle(self.screen, (50, 50, 50), (sx, sy), r, 2)
             return
             
-        # --- NEW CODE: Player Boat vs Enemy Circles ---
+        # --- Handle Visuals ---
         if e.controllable:
-            # 1. Get the player's aim angle based on mouse position
+            # Player Boat
             mx, my = pygame.mouse.get_pos()
             aim_angle = math.atan2(my - sy, mx - sx)
-            
-            # 2. Get the name of the equipped weapon
             weapon_name = type(self.player_weapon).__name__ if self.player_weapon else "pistol"
             
-            # 3. Draw the player boat and turret
-            PlayerVisual.draw(
-                screen=self.screen,
-                x=sx, 
-                y=sy, 
-                angle=aim_angle, 
-                weapon_type=weapon_name
-            )
+            PlayerVisual.draw(self.screen, sx, sy, aim_angle, weapon_name)
+            
         else:
-            # Draw standard circles for enemies and static obstacles
-            pygame.draw.circle(self.screen, e.color, (sx, sy), r)
-            if e.static:
-                pygame.draw.circle(self.screen, (200, 180, 140), (sx, sy), r, 2)
-            else:
-                pygame.draw.circle(self.screen, (180, 180, 180), (sx, sy), r, 1)
-        # ----------------------------------------------
+            # Custom Enemy Boat
+            is_custom = EnemyVisual.draw(self.screen, e.name, sx, sy, r, e.vx, e.vy)
+            
+            # Fallback for un-designed entities or bullets
+            # Fallback for un-designed entities or bullets
+            if not is_custom:
+                name_lower = (e.name or "").lower()
+                is_bullet = any(word in name_lower for word in ["bullet", "projectile", "shot", "pellet", "shell", "laser", "rocket"])
+                
+                # 1. Define it up here so it ALWAYS exists, no matter what!
+                w_type = "pistol" 
+                
+                if is_bullet:
+                    # 1. FORCE the variable to exist right here!
+                    w_type = "pistol" 
+                    
+                    # 2. Check the names to see if we need to change it
+                    if "sniper" in name_lower:
+                        w_type = "sniper"
+                    elif "machine" in name_lower or "gunner" in name_lower:
+                        w_type = "machine_gun"
+                    elif "rocket" in name_lower or "bazooka" in name_lower:
+                        w_type = "rocket_launcher"
+                    elif "shotgun" in name_lower or "pellet" in name_lower or "breacher" in name_lower:
+                        w_type = "shotgun"
 
-        # Draw Health Bars and Names (Kept unchanged)
+                    # 3. Draw the bullet!
+                    BulletVisual.draw(self.screen, sx, sy, e.color, r, (e.vx, e.vy), False, w_type)
+                else:
+                    # 4. Standard basic shapes for obstacles or unknown objects
+                    pygame.draw.circle(self.screen, e.color, (sx, sy), r)
+                    if e.static:
+                        pygame.draw.circle(self.screen, (200, 180, 140), (sx, sy), r, 2)
+                    else:
+                        pygame.draw.circle(self.screen, (180, 180, 180), (sx, sy), r, 1)
+
+        # --- Health Bars and Names ---
         if not e.static:
             bar_w = max(r * 2, 20);  bar_h = 5
             bx    = sx - bar_w // 2;  by = sy - r - 12
@@ -476,6 +497,7 @@ class WaterGame:
         # Projectiles — same ghost logic
         # --- (Inside _render method) ---
         # Projectiles — Rendered using specialized visuals from bullet.py
+        # Projectiles — Rendered using specialized visuals from bullet.py
         for proj in self.projectiles:
             px, py = proj.x, proj.y
             pr = int(proj.radius or 3)
@@ -489,17 +511,24 @@ class WaterGame:
                     sx, sy = px + ox, py + oy
                     if -20 < sx < self.width + 20 and -20 < sy < self.height + 20:
                         
-                        # Fix: explicitly set is_explosion=False so the custom rocket draws!
+                        # Fix: We must use p_color, pr, proj.vx/vy, and fired_by here!
                         BulletVisual.draw(
-                            screen=self.screen, 
-                            x=sx, 
-                            y=sy, 
-                            color=p_color, 
-                            radius=pr, 
-                            velocity=(proj.vx, proj.vy), 
-                            is_explosion=False,          # <--- THIS IS THE FIX
-                            weapon_type=fired_by
+                            self.screen, 
+                            sx, sy, 
+                            p_color, 
+                            pr, 
+                            (proj.vx, proj.vy), 
+                            False, 
+                            fired_by
                         )
+
+            for ox in ox_offsets:
+                for oy in (0, self.height, -self.height):
+                    sx, sy = px + ox, py + oy
+                    if -20 < sx < self.width + 20 and -20 < sy < self.height + 20:
+                        
+                        # Fix: explicitly set is_explosion=False so the custom rocket draws!
+                        BulletVisual.draw(self.screen, sx, sy, p_color, pr, (proj.vx, proj.vy), False, fired_by)
 
         # Explosions — Re-designed to match the vector burst pattern from image_0075f5.png
         # Layers: Translucent Cyan splinters -> Red spikes -> Orange spikes -> Hot core

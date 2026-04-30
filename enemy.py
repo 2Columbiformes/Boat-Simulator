@@ -1,6 +1,7 @@
 import math
 from entity import Entity
 from weapon import Pistol, MachineGun, Sniper, Shotgun, Bazooka, Projectile
+import assets
 
 class Enemy(Entity):
     def __init__(self, x, y, mass=1.0, color=(200, 50, 50), radius=15, hp=50, name="Enemy"):
@@ -87,10 +88,17 @@ class BazookaEnemy(Enemy):
 # ─── 2. The Melee / Special Enemies ───────────────────────────────────────────
 
 class ChaserEnemy(Enemy):
-    def __init__(self, x, y):
-        super().__init__(x, y, color=(200, 40, 60), hp=60, name="Chaser")
-        self.optimal_range = 0.0 # Wants to touch the player
-        self.speed = 160.0       # Very fast
+    def __init__(self, x, y, cx=0, cy=0):
+        super().__init__(x=x, y=y, mass=1.0, color=(160, 40, 40), radius=12, hp=40, name="Chaser")
+        self.optimal_range = 0.0 # Wants to touch player
+        self.damage_on_touch = 5.0
+        self.collision_damage_cooldown = 0.8
+        self.last_collision_dmg = 0.0
+        # Patrol center (optional)
+        self.cx = cx
+        self.cy = cy
+        
+
 
 class BomberEnemy(Enemy):
     def __init__(self, x, y):
