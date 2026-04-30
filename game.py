@@ -139,14 +139,22 @@ class WaterGame:
     def _update_camera(self):
         if self.player is None:
             return
+        half_w   = self.width  / (2.0 * self.zoom)
+        half_h   = self.height / (2.0 * self.zoom)
+        target_x = self.player.x - half_w
+        target_y = self.player.y - half_h
         if self.survival:
-            # Hard left/right boundaries; y still torus
-            self.cam_x = max(0.0, min(self.player.x - self.width  / 2,
-                                      self.world_w   - self.width))
-            self.cam_y = self.player.y - self.height / 2
+            target_x = max(0.0, min(target_x, self.world_w - self.width / self.zoom))
+            self.cam_x += (target_x - self.cam_x) * 0.08
+            self.cam_y += (target_y - self.cam_y) * 0.08
         else:
-            self.cam_x = self.player.x - self.width  / 2
-            self.cam_y = self.player.y - self.height / 2
+            # Torus-aware lerp: take the shortest path around the wrap
+            dx = target_x - self.cam_x
+            dy = target_y - self.cam_y
+            dx -= self.world_w * round(dx / self.world_w)
+            dy -= self.world_h * round(dy / self.world_h)
+            self.cam_x += dx * 0.08
+            self.cam_y += dy * 0.08
 
     def _w2s(self, wx: float, wy: float):
         """World → screen (float) coords, using torus minimum-image."""
@@ -157,7 +165,7 @@ class WaterGame:
             elif sx < -self.world_w / 2: sx += self.world_w
         if sy >  self.world_h / 2: sy -= self.world_h
         elif sy < -self.world_h / 2: sy += self.world_h
-        return sx, sy
+        return sx * self.zoom, sy * self.zoom
 
     # ── Survival mode ─────────────────────────────────────────────────────────
     def _update_survival(self, dt: float):
@@ -223,6 +231,9 @@ class WaterGame:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 self.running = False
+            elif event.type == pygame.MOUSEWHEEL:
+                factor = 1.1 if event.y > 0 else (1.0 / 1.1)
+                self.zoom = max(0.25, min(4.0, self.zoom * factor))
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = event.pos
                 # Left click fires the player weapon (if any); right click always splashes
@@ -269,11 +280,15 @@ class WaterGame:
             gr = e.radius / max(CELL_W, CELL_H)
             self.water.splash(gx, gy, -DISPLACE_AMP * e.mass, gr)
             spd = math.hypot(e.vx, e.vy)
+            # Enemies create much weaker ripples to avoid saturating the grid
+            ripple = RIPPLE_AMP * (1.0 if e.controllable else 0.12)
             if spd > 5.0:
-                self.water.splash(gx, gy, RIPPLE_AMP * spd * dt, max(gr * 0.6, 0.5))
+                self.water.splash(gx, gy, ripple * spd * dt, max(gr * 0.6, 0.5))
             dx_w, dy_w = self.water.gradient_at(gx, gy)
-            e.ax += -WAVE_GRAD_K * dx_w / e.mass
-            e.ay += -WAVE_GRAD_K * dy_w / e.mass
+            # Enemies are pushed much harder by wave gradients
+            grad_k = WAVE_GRAD_K * (1.0 if e.controllable else 6.0)
+            e.ax += -grad_k * dx_w / e.mass
+            e.ay += -grad_k * dy_w / e.mass
             e.vx *= 1.0 - DRAG_K
             e.vy *= 1.0 - DRAG_K
 
@@ -416,8 +431,8 @@ class WaterGame:
                             if (e.__setitem__("t", e["t"] - dt) or True) and e["t"] > 0]
 
     # ── Rendering ──────────────────────────────────────────────────────────────
-    def _draw_entity_at(self, e: Entity, sx: int, sy: int):
-        r = int(e.radius)
+    def _draw_entity_at(self, e: Entity, sx: int, sy: int, draw_r: int = 0):
+        r = draw_r if draw_r > 0 else int(e.radius)
         if not e.alive:
             pygame.draw.circle(self.screen, (80, 80, 80), (sx, sy), r)
             pygame.draw.circle(self.screen, (50, 50, 50), (sx, sy), r, 2)
@@ -488,10 +503,14 @@ class WaterGame:
         off_y   = int(cam_gy) % GRID_H
         frac_px = int((cam_gx % 1.0) * CELL_W)
         frac_py = int((cam_gy % 1.0) * CELL_H)
-        cells_x = self.width  // CELL_W + 2
-        cells_y = self.height // CELL_H + 2
+        # Number of grid cells needed depends on zoom (zoom-out → see more cells)
+        cells_x = int(math.ceil(self.width  / (CELL_W * self.zoom))) + 2
+        cells_y = int(math.ceil(self.height / (CELL_H * self.zoom))) + 2
         h_view  = np.roll(np.roll(self.water.h, -off_y, axis=0), -off_x, axis=1)
-        h_sl    = h_view[:cells_y, :cells_x]
+        # Use modular indexing so extreme zoom-out wraps correctly
+        row_idx = np.arange(cells_y) % GRID_H
+        col_idx = np.arange(cells_x) % GRID_W
+        h_sl    = h_view[np.ix_(row_idx, col_idx)]
         h_norm  = np.clip(h_sl / SPLASH_AMP, -1.0, 1.0) * 0.5 + 0.5
         t_low   = np.clip(h_norm * 2.0,         0.0, 1.0)[..., np.newaxis]
         t_high  = np.clip((h_norm - 0.5) * 2.0, 0.0, 1.0)[..., np.newaxis]
@@ -499,23 +518,25 @@ class WaterGame:
             (1.0 - t_low) * COLOR_DEEP + t_low * COLOR_SHALLOW
             - t_high * COLOR_SHALLOW   + t_high * COLOR_CREST
         ).astype(np.uint8)
-        big  = np.repeat(np.repeat(color_sl, CELL_H, axis=0), CELL_W, axis=1)
-        view = big[frac_py : frac_py + self.height, frac_px : frac_px + self.width]
-        np.copyto(self._pixel_buf, view.transpose(1, 0, 2))
-        pygame.surfarray.blit_array(self._water_surf, self._pixel_buf)
-        self.screen.blit(self._water_surf, (0, 0))
+        big     = np.repeat(np.repeat(color_sl, CELL_H, axis=0), CELL_W, axis=1)
+        vis_w   = int(math.ceil(self.width  / self.zoom)) + CELL_W
+        vis_h   = int(math.ceil(self.height / self.zoom)) + CELL_H
+        view    = big[frac_py : frac_py + vis_h, frac_px : frac_px + vis_w]
+        raw_surf = pygame.Surface((view.shape[1], view.shape[0]))
+        pygame.surfarray.blit_array(raw_surf, view.transpose(1, 0, 2))
+        self.screen.blit(pygame.transform.scale(raw_surf, (self.width, self.height)), (0, 0))
 
         # ── Entities ──
         for e in self.entities:
             sx, sy = self._w2s(e.x, e.y)
-            r = int(e.radius)
-            if sx + r >= 0 and sx - r < self.width and sy + r >= 0 and sy - r < self.height:
-                self._draw_entity_at(e, int(sx), int(sy))
+            draw_r = max(1, int(e.radius * self.zoom))
+            if sx + draw_r >= 0 and sx - draw_r < self.width and sy + draw_r >= 0 and sy - draw_r < self.height:
+                self._draw_entity_at(e, int(sx), int(sy), draw_r)
 
         # ── Projectiles ──
         for proj in self.projectiles:
             sx, sy = self._w2s(proj.x, proj.y)
-            pr = 5 if proj.explodes else 3
+            pr = max(1, int((5 if proj.explodes else 3) * self.zoom))
             if sx + pr >= 0 and sx - pr < self.width and sy + pr >= 0 and sy - pr < self.height:
                 pygame.draw.circle(self.screen, proj.color, (int(sx), int(sy)), pr)
 
@@ -524,10 +545,15 @@ class WaterGame:
             fsx, fsy = self._w2s(self.flag_pos[0], self.flag_pos[1])
             fx, fy = int(fsx), int(fsy)
             if 0 <= fx < self.width and 0 <= fy < self.height:
-                pygame.draw.line(self.screen, (220, 220, 220), (fx, fy + 16), (fx, fy - 20), 3)
+                z = self.zoom
+                pygame.draw.line(self.screen, (220, 220, 220),
+                                 (fx, fy + int(16 * z)), (fx, fy - int(20 * z)),
+                                 max(1, int(3 * z)))
                 pygame.draw.polygon(self.screen, (50, 220, 80),
-                                    [(fx, fy - 20), (fx + 18, fy - 13), (fx, fy - 6)])
-                pulse_r = 36 + int(6 * math.sin(self._frame * 0.15))
+                                    [(fx, fy - int(20 * z)),
+                                     (fx + int(18 * z), fy - int(13 * z)),
+                                     (fx, fy - int(6 * z))])
+                pulse_r = max(2, int((36 + int(6 * math.sin(self._frame * 0.15))) * z))
                 pygame.draw.circle(self.screen, (50, 220, 80), (fx, fy), pulse_r, 2)
             else:
                 self._draw_flag_arrow(fsx, fsy)
@@ -536,7 +562,7 @@ class WaterGame:
         for exp in self._explosions:
             sx, sy = self._w2s(exp["x"], exp["y"])
             frac = exp["t"] / exp["max_t"]
-            r    = int(exp["r"] + (exp["max_r"] - exp["r"]) * (1 - frac))
+            r    = max(1, int((exp["r"] + (exp["max_r"] - exp["r"]) * (1 - frac)) * self.zoom))
             alpha = int(200 * frac)
             if sx + r >= 0 and sx - r < self.width and sy + r >= 0 and sy - r < self.height:
                 surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)

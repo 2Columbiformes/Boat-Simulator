@@ -11,11 +11,11 @@ FPS     = 60
 # ── Wave physics ───────────────────────────────────────────────────────────────
 WAVE_SPEED   = 0.5   # CFL: must stay below 1/sqrt(2) ≈ 0.707
 DAMPING      = 0.999
-SPLASH_AMP   = 1.0
-SPLASH_R     = 5
+SPLASH_AMP   = 0.1
+SPLASH_R     = 3
 
 # ── Entity–water coupling ──────────────────────────────────────────────────────
-WAVE_GRAD_K  = 100.0
+WAVE_GRAD_K  = 10.0
 DRAG_K       = 0.005
 DISPLACE_AMP = 0.1
 RIPPLE_AMP   = 0.12
