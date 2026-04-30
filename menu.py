@@ -1,9 +1,8 @@
 import pygame
 from water import WIDTH, HEIGHT, FPS
 
-
 class MainMenu:
-    """Simple title screen. Call run() → returns 'play' or 'quit'."""
+    """Simple title screen. Call run() → returns 'play', 'weapons', or 'quit'."""
 
     _BG      = (8,  25,  60)
     _TITLE   = (200, 230, 255)
@@ -27,8 +26,11 @@ class MainMenu:
     def run(self) -> str:
         btn_w, btn_h = 200, 56
         cx = self.W // 2
-        play_rect = pygame.Rect(cx - btn_w // 2, self.H // 2 + 20,  btn_w, btn_h)
-        quit_rect = pygame.Rect(cx - btn_w // 2, self.H // 2 + 100, btn_w, btn_h)
+        
+        # We now have 3 buttons, so we adjust their Y positions to fit nicely
+        play_rect = pygame.Rect(cx - btn_w // 2, self.H // 2 - 20,  btn_w, btn_h)
+        weap_rect = pygame.Rect(cx - btn_w // 2, self.H // 2 + 60,  btn_w, btn_h)
+        quit_rect = pygame.Rect(cx - btn_w // 2, self.H // 2 + 140, btn_w, btn_h)
 
         while True:
             mx, my = pygame.mouse.get_pos()
@@ -40,6 +42,8 @@ class MainMenu:
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if play_rect.collidepoint(mx, my):
                         return "play"
+                    if weap_rect.collidepoint(mx, my):
+                        return "weapons"  # This tells main.py to open the weapon menu
                     if quit_rect.collidepoint(mx, my):
                         return "quit"
 
@@ -57,12 +61,12 @@ class MainMenu:
 
             # Title
             title = self._title_font.render("BOAT SIMULATOR", True, self._TITLE)
-            self.screen.blit(title, (cx - title.get_width() // 2, self.H // 2 - 130))
+            self.screen.blit(title, (cx - title.get_width() // 2, self.H // 2 - 150))
             sub = self._sub_font.render("WASD/arrows to move  •  Click to splash", True, (130, 170, 220))
-            self.screen.blit(sub, (cx - sub.get_width() // 2, self.H // 2 - 40))
+            self.screen.blit(sub, (cx - sub.get_width() // 2, self.H // 2 - 80))
 
-            # Buttons
-            for rect, label in ((play_rect, "PLAY"), (quit_rect, "QUIT")):
+            # Draw all three Buttons
+            for rect, label in ((play_rect, "PLAY"), (weap_rect, "WEAPONS"), (quit_rect, "QUIT")):
                 hov = rect.collidepoint(mx, my)
                 pygame.draw.rect(self.screen, self._BTN_HOV if hov else self._BTN_BG,
                                  rect, border_radius=10)
