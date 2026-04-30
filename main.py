@@ -1,8 +1,47 @@
-"""Entry point — wires the menu into the game."""
+"""Entry point — wires menu → level select → game."""
 from menu import MainMenu
+from level_select import LevelSelect
+from levels import LEVELS
 from game import WaterGame
 from enemy import make_drift, make_chaser, make_sniper, make_artillery, make_patrol
-from water import GRID_W, GRID_H
+
+
+_FACTORIES = {
+    "drift":     make_drift,
+    "chase":     make_chaser,
+    "snipe":     make_sniper,
+    "artillery": make_artillery,
+}
+
+
+def _build_game(lvl) -> WaterGame:
+    game = WaterGame(
+        flag_pos      = lvl.flag_pos,
+        survival      = lvl.survival,
+        survival_secs = lvl.survival_secs,
+        current_force = lvl.current_force,
+        scroll_speed  = lvl.scroll_speed,
+    )
+    px, py = lvl.player_start
+    game.add_entity(x=px, y=py, mass=2.0, radius=14,
+                    color=(50, 220, 80), controllable=True, max_hp=1000, name="player")
+    for obs in lvl.obstacles:
+        game.add_entity(x=obs["x"], y=obs["y"],
+                        mass=10.0, radius=obs["radius"],
+                        color=obs.get("color", (110, 90, 60)), static=True)
+    for edef in lvl.enemies:
+        t = edef["type"]
+        if t == "patrol":
+            enemy = make_patrol(edef["x"], edef["y"],
+                                edef.get("cx", edef["x"]),
+                                edef.get("cy", edef["y"]))
+        else:
+            enemy = _FACTORIES[t](edef["x"], edef["y"])
+        game.add_enemy(enemy)
+    for gx, gy, amp, r in lvl.splashes:
+        game.water.splash(gx, gy, amp, r)
+    game.player_weapon = lvl.player_weapon
+    return game
 
 
 def main():
@@ -10,28 +49,23 @@ def main():
     if menu.run() != "play":
         return
 
-    game = WaterGame()
+    level_names     = [lvl.name for lvl in LEVELS]
+    levels_unlocked = 1
 
-    # Player boat — WASD / arrow keys
-    game.add_entity(x=200, y=300, mass=2.0, radius=14,
-                    color=(50, 220, 80), controllable=True, max_hp=120, name="player")
+    while True:
+        sel = LevelSelect(level_names, levels_unlocked).run()
+        if sel == -1:
+            if menu.run() != "play":
+                return
+            continue
 
-    # One of each enemy archetype
-    game.add_enemy(make_drift    (x=500, y=180))
-    game.add_enemy(make_chaser   (x=620, y=430))
-    game.add_enemy(make_sniper   (x=650, y=150))
-    game.add_enemy(make_artillery(x=100, y=450))
-    game.add_enemy(make_patrol   (x=300, y=100, cx=300, cy=100))
+        result = _build_game(LEVELS[sel]).run()   # "win" | "lose" | "quit"
 
-    # Static rock obstacle
-    game.add_entity(x=400, y=300, mass=10.0, radius=22,
-                    color=(110, 90, 60), static=True)
-
-    # Seed initial wave disturbance
-    game.water.splash(GRID_W // 2, GRID_H // 2, 2.5, 10)
-    game.water.splash(GRID_W // 4, GRID_H // 3, 1.5,  6)
-
-    game.run()
+        if result == "win" and sel + 1 == levels_unlocked and levels_unlocked < len(LEVELS):
+            levels_unlocked += 1
+        if result == "quit":
+            return
+        # "win" or "lose" → loop back to level select
 
 
 if __name__ == "__main__":

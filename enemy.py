@@ -131,28 +131,28 @@ class Enemy:
 
 def make_drift(x: float, y: float) -> Enemy:
     e = Entity(x=x, y=y, mass=1.5, radius=11,
-               color=(220, 60, 60), max_hp=80, name="drifter")
+               color=(220, 60, 60), max_hp=2400, name="drifter")
     return Enemy(entity=e, weapon=Pistol(), ai_type="drift")
 
 def make_chaser(x: float, y: float) -> Enemy:
     e = Entity(x=x, y=y, mass=1.8, radius=12,
-               color=(220, 120, 40), max_hp=90, name="chaser")
+               color=(220, 120, 40), max_hp=2700, name="chaser")
     return Enemy(entity=e, weapon=MachineGun(), ai_type="chase")
 
 def make_sniper(x: float, y: float) -> Enemy:
     e = Entity(x=x, y=y, mass=1.2, radius=10,
-               color=(120, 60, 200), max_hp=60, name="sniper")
+               color=(120, 60, 200), max_hp=1800, name="sniper")
     return Enemy(entity=e, weapon=Sniper(), ai_type="snipe")
 
 def make_artillery(x: float, y: float) -> Enemy:
     e = Entity(x=x, y=y, mass=3.0, radius=16,
-               color=(180, 140, 40), max_hp=120, name="artillery")
+               color=(180, 140, 40), max_hp=3600, name="artillery")
     return Enemy(entity=e, weapon=Bazooka(), ai_type="artillery")
 
 def make_patrol(x: float, y: float, cx: float = None, cy: float = None) -> Enemy:
     cx = cx if cx is not None else x
     cy = cy if cy is not None else y
     e  = Entity(x=x, y=y, mass=1.6, radius=12,
-                color=(200, 80, 160), max_hp=85, name="patrol")
+                color=(200, 80, 160), max_hp=2550, name="patrol")
     return Enemy(entity=e, weapon=Shotgun(), ai_type="patrol",
                  patrol_cx=cx, patrol_cy=cy)
