@@ -16,6 +16,8 @@ class LevelDef:
     current_force: float = 80.0   # px/s² leftward (applied to player only)
     scroll_speed:  float = 4.0    # grid cells/s scrolled left visually
     player_weapon: object = None  # Weapon instance given to the player
+    enemy_budget:  int   = 0      # target live-enemy count (0 = no auto-respawn)
+    spawn_pool:    object = None  # list[str] of types to randomly spawn
 
 
 # All coordinates are in world space (3200 × 2400), scaled 4× from the old 800×600 screen.
@@ -37,6 +39,8 @@ level1 = LevelDef(
         (GRID_W // 2, GRID_H // 2, 2.0, 8),
     ],
     player_weapon = Pistol(),
+    enemy_budget  = 10,
+    spawn_pool    = ["drift", "patrol"],
 )
 
 # ── Level 2: The Gauntlet ──────────────────────────────────────────────────────
@@ -60,18 +64,14 @@ level2 = LevelDef(
         {"type": "chase", "x":  640, "y":  520},
         {"type": "chase", "x":  640, "y": 1880},
         {"type": "snipe", "x": 2400, "y": 1200},
-        {"type": "chase", "x":  640, "y":  520},
-        {"type": "chase", "x":  640, "y": 1880},
-        {"type": "snipe", "x": 2400, "y": 1200},
-        {"type": "chase", "x":  640, "y":  520},
-        {"type": "chase", "x":  640, "y": 1880},
-        {"type": "snipe", "x": 2400, "y": 1200},
     ],
     splashes      = [
         (GRID_W // 3,     GRID_H // 3,     1.5, 6),
         (GRID_W * 2 // 3, GRID_H * 2 // 3, 1.5, 6),
     ],
     player_weapon = MachineGun(),
+    enemy_budget  = 14,
+    spawn_pool    = ["drift", "chase", "patrol"],
 )
 
 # ── Level 3: Crossfire ─────────────────────────────────────────────────────────
@@ -90,21 +90,14 @@ level3 = LevelDef(
         {"type": "snipe",     "x":  400, "y":  400},
         {"type": "artillery", "x": 1600, "y": 1200},
         {"type": "drift",     "x": 1600, "y":  600},
-        {"type": "chase", "x":  640, "y":  520},
-        {"type": "chase", "x":  640, "y": 1880},
-        {"type": "snipe", "x": 2400, "y": 1200},
-        {"type": "chase", "x":  640, "y":  520},
-        {"type": "chase", "x":  640, "y": 1880},
-        {"type": "snipe", "x": 2400, "y": 1200},
-        {"type": "chase", "x":  640, "y":  520},
-        {"type": "chase", "x":  640, "y": 1880},
-        {"type": "snipe", "x": 2400, "y": 1200},
     ],
     splashes      = [
         (GRID_W // 4, GRID_H // 4, 2.0, 8),
         (GRID_W * 3 // 4, GRID_H * 3 // 4, 1.5, 6),
     ],
     player_weapon = Sniper(),
+    enemy_budget  = 17,
+    spawn_pool    = ["drift", "chase", "snipe"],
 )
 
 # ── Level 4: The Maze ──────────────────────────────────────────────────────────
@@ -151,11 +144,6 @@ level4 = LevelDef(
     ],
     enemies       = [
         {"type": "chase",     "x": 1200, "y": 1200},
-        {"type": "chase",     "x": 1200, "y": 1200},
-        {"type": "chase",     "x": 1200, "y": 1200},
-        {"type": "chase",     "x": 1200, "y": 1200},
-        {"type": "chase",     "x": 1200, "y": 1200},
-        {"type": "chase",     "x": 1200, "y": 1200},
         {"type": "patrol",    "x": 2400, "y":  800, "cx": 2400, "cy":  800},
         {"type": "snipe",     "x": 2800, "y": 1600},
         {"type": "artillery", "x": 1600, "y": 2000},
@@ -166,6 +154,8 @@ level4 = LevelDef(
         (GRID_W * 3 // 4, GRID_H // 2, 1.8, 7),
     ],
     player_weapon = Shotgun(),
+    enemy_budget  = 20,
+    spawn_pool    = ["drift", "chase", "snipe", "artillery", "patrol"],
 )
 
 # ── Level 5: River of No Return (survival) ─────────────────────────────────────
@@ -175,13 +165,9 @@ level5 = LevelDef(
     flag_pos      = None,           # win by surviving
     obstacles     = [],
     enemies       = [
-        {"type": "chase",  "x": 1600, "y": 1200},
-        {"type": "chase",  "x": 1600, "y": 1200},
-        {"type": "chase",  "x": 1600, "y": 1200},
-        {"type": "chase",  "x": 1600, "y": 1200},
-        {"type": "chase",  "x": 1600, "y": 1200},
-        {"type": "chase",  "x": 1600, "y": 1200},
-        {"type": "chase",  "x": 1600, "y": 1200},
+        {"type": "boss",   "x": 1600, "y": 1200},
+        {"type": "drift",  "x": 2000, "y":  600},
+        {"type": "drift",  "x": 2000, "y": 1800},
         {"type": "patrol", "x": 1200, "y":  800, "cx": 1200, "cy":  800},
         {"type": "snipe",  "x": 2400, "y":  400},
     ],
@@ -193,6 +179,8 @@ level5 = LevelDef(
     current_force = 90.0,
     scroll_speed  = 5.0,
     player_weapon = Bazooka(),
+    enemy_budget  = 25,
+    spawn_pool    = ["drift", "chase", "patrol"],
 )
 
 

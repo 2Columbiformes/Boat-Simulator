@@ -155,3 +155,45 @@ def make_patrol(x: float, y: float, cx: float = None, cy: float = None) -> Enemy
                 color=(200, 80, 160), max_hp=2550, name="patrol")
     return Enemy(entity=e, weapon=Shotgun(), ai_type="patrol",
                  patrol_cx=cx, patrol_cy=cy)
+
+
+# ── Boss ───────────────────────────────────────────────────────────────────────
+
+class Boss(Enemy):
+    """Invincible level-5 boss: rams the player and fires MachineGun + Sniper + Bazooka."""
+
+    def __init__(self, x: float, y: float):
+        e = Entity(x=x, y=y, mass=4.0, radius=52,
+                   color=(220, 20, 20), max_hp=99999, name="BOSS")
+        super().__init__(entity=e, weapon=MachineGun(), ai_type="chase")
+        self._sniper  = Sniper()
+        self._bazooka = Bazooka()
+
+    def _ai_chase(self, dt, tx, ty, dist, angle_to):
+        """Double-speed chase for ramming."""
+        e = self.entity
+        e.vx += math.cos(angle_to) * 480.0 * dt
+        e.vy += math.sin(angle_to) * 480.0 * dt
+        if self.weapon.ready:
+            return self.weapon.fire(e.x, e.y, angle_to)
+        return []
+
+    def update(self, dt: float, target, water):
+        self.entity.hp = self.entity.max_hp   # truly invincible — reset every frame
+        self._sniper.tick(dt)
+        self._bazooka.tick(dt)
+        projs = list(super().update(dt, target, water))
+        if target is not None and target.alive:
+            angle_to = _torus_angle(self.entity.x, self.entity.y, target.x, target.y)
+            if self._sniper.ready:
+                projs += self._sniper.fire(self.entity.x, self.entity.y, angle_to)
+            if self._bazooka.ready:
+                projs += self._bazooka.fire(self.entity.x, self.entity.y, angle_to)
+        # Prevent self-damage from own projectiles
+        for p in projs:
+            p.hits.add(id(self.entity))
+        return projs
+
+
+def make_boss(x: float, y: float) -> Boss:
+    return Boss(x, y)

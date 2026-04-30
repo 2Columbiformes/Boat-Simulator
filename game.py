@@ -1,4 +1,5 @@
 import math
+import random
 import pygame
 import numpy as np
 
@@ -9,7 +10,16 @@ from water import (WaterGrid, WIDTH, HEIGHT, WORLD_W, WORLD_H,
                    COLOR_DEEP, COLOR_SHALLOW, COLOR_CREST)
 from entity import Entity
 from weapon import Projectile
-from enemy import Enemy
+from enemy import (Enemy,
+                   make_drift, make_chaser, make_sniper, make_artillery, make_patrol)
+
+_SPAWN_FACTORIES = {
+    "drift":     make_drift,
+    "chase":     make_chaser,
+    "snipe":     make_sniper,
+    "artillery": make_artillery,
+    "patrol":    make_patrol,
+}
 
 # ── Collision constants (kept here as they belong to the game loop) ────────────
 RESTITUTION      = 1.0
@@ -32,7 +42,8 @@ class WaterGame:
     def __init__(self, width: int = WIDTH, height: int = HEIGHT, fps: int = FPS,
                  flag_pos=None, flag_radius: float = 30,
                  survival: bool = False, survival_secs: float = 120.0,
-                 current_force: float = 90.0, scroll_speed: float = 5.0):
+                 current_force: float = 90.0, scroll_speed: float = 5.0,
+                 enemy_budget: int = 0, spawn_pool=None):
         pygame.init()
         self.screen = pygame.display.set_mode((width, height))
         pygame.display.set_caption("Boat Simulator — WASD/arrows to move, click to splash")
@@ -77,6 +88,11 @@ class WaterGame:
         # Player weapon (assigned externally before run())
         self.player_weapon = None
 
+        # Continuous enemy spawning
+        self.enemy_budget = enemy_budget
+        self.spawn_pool   = list(spawn_pool) if spawn_pool else []
+        self._spawn_timer = 3.0   # seconds until first auto-spawn
+
     # ── Public API ─────────────────────────────────────────────────────────────
     def add_entity(self, x: float, y: float, **kwargs) -> Entity:
         """
@@ -113,6 +129,8 @@ class WaterGame:
             self._integrate_entities()
             self._resolve_collisions()
             self._update_enemies(dt)
+            self._cleanup_dead_enemies()
+            self._maybe_spawn_enemy(dt)
             self._update_projectiles(dt)
             self._update_explosions(dt)
             self._check_end_conditions()
@@ -429,6 +447,43 @@ class WaterGame:
     def _update_explosions(self, dt: float):
         self._explosions = [e for e in self._explosions
                             if (e.__setitem__("t", e["t"] - dt) or True) and e["t"] > 0]
+
+    # ── Enemy lifecycle ────────────────────────────────────────────────────────
+
+    def _cleanup_dead_enemies(self):
+        """Remove dead enemy entities from both lists to prevent unbounded growth."""
+        dead_ids = {id(en.entity) for en in self.enemies if not en.entity.alive}
+        if not dead_ids:
+            return
+        self.enemies  = [en for en in self.enemies if en.entity.alive]
+        self.entities = [e  for e  in self.entities
+                         if e.controllable or e.static or id(e) not in dead_ids]
+
+    def _maybe_spawn_enemy(self, dt: float):
+        """Spawn one enemy if living count is below budget."""
+        if not self.spawn_pool or self.enemy_budget <= 0:
+            return
+        living = sum(1 for en in self.enemies if en.entity.alive)
+        if living >= self.enemy_budget:
+            return
+        self._spawn_timer -= dt
+        if self._spawn_timer > 0:
+            return
+        self._spawn_timer = 2.0   # one spawn every 2 s once deficit exists
+
+        # Find a position at least 600 world-px from the player
+        for _ in range(30):
+            if self.survival:
+                sx = self.world_w - random.uniform(80, 480)
+                sy = random.uniform(200, self.world_h - 200)
+            else:
+                sx = random.uniform(0, self.world_w)
+                sy = random.uniform(0, self.world_h)
+            if (self.player is None or
+                    self._torus_dist(sx, sy, self.player.x, self.player.y) > 600):
+                break
+
+        self.add_enemy(_SPAWN_FACTORIES[random.choice(self.spawn_pool)](sx, sy))
 
     # ── Rendering ──────────────────────────────────────────────────────────────
     def _draw_entity_at(self, e: Entity, sx: int, sy: int, draw_r: int = 0):

@@ -3,7 +3,7 @@ from menu import MainMenu
 from level_select import LevelSelect
 from levels import LEVELS
 from game import WaterGame
-from enemy import make_drift, make_chaser, make_sniper, make_artillery, make_patrol
+from enemy import make_drift, make_chaser, make_sniper, make_artillery, make_patrol, make_boss
 
 
 _FACTORIES = {
@@ -11,6 +11,8 @@ _FACTORIES = {
     "chase":     make_chaser,
     "snipe":     make_sniper,
     "artillery": make_artillery,
+    "patrol":    make_patrol,
+    "boss":      make_boss,
 }
 
 
@@ -21,6 +23,8 @@ def _build_game(lvl) -> WaterGame:
         survival_secs = lvl.survival_secs,
         current_force = lvl.current_force,
         scroll_speed  = lvl.scroll_speed,
+        enemy_budget  = lvl.enemy_budget,
+        spawn_pool    = lvl.spawn_pool or [],
     )
     px, py = lvl.player_start
     game.add_entity(x=px, y=py, mass=2.0, radius=14,
@@ -35,6 +39,8 @@ def _build_game(lvl) -> WaterGame:
             enemy = make_patrol(edef["x"], edef["y"],
                                 edef.get("cx", edef["x"]),
                                 edef.get("cy", edef["y"]))
+        elif t == "boss":
+            enemy = make_boss(edef["x"], edef["y"])
         else:
             enemy = _FACTORIES[t](edef["x"], edef["y"])
         game.add_enemy(enemy)
