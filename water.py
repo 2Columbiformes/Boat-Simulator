@@ -1,20 +1,21 @@
 import numpy as np
 
 # ── Window & grid ──────────────────────────────────────────────────────────────
-WIDTH,  HEIGHT  = 800, 600
-GRID_W, GRID_H  = 200, 150
-CELL_W  = WIDTH  // GRID_W
-CELL_H  = HEIGHT // GRID_H
+WIDTH,  HEIGHT  = 800, 600          # screen / viewport size
+WORLD_W, WORLD_H = 3200, 2400       # physics / simulation world size (~4× screen)
+GRID_W, GRID_H  = 300, 200
+CELL_W  = WORLD_W // GRID_W         # 16 px per grid cell
+CELL_H  = WORLD_H // GRID_H         # 16 px per grid cell
 FPS     = 60
 
 # ── Wave physics ───────────────────────────────────────────────────────────────
-WAVE_SPEED   = 0.35   # CFL: must stay below 1/sqrt(2) ≈ 0.707
-DAMPING      = 0.990
-SPLASH_AMP   = 4.0
+WAVE_SPEED   = 0.5   # CFL: must stay below 1/sqrt(2) ≈ 0.707
+DAMPING      = 0.999
+SPLASH_AMP   = 1.0
 SPLASH_R     = 5
 
 # ── Entity–water coupling ──────────────────────────────────────────────────────
-WAVE_GRAD_K  = 1000.0
+WAVE_GRAD_K  = 100.0
 DRAG_K       = 0.005
 DISPLACE_AMP = 0.1
 RIPPLE_AMP   = 0.12

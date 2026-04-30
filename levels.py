@@ -1,4 +1,4 @@
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from water import GRID_W, GRID_H
 from weapon import Pistol, MachineGun, Sniper, Shotgun, Bazooka
 
@@ -18,18 +18,20 @@ class LevelDef:
     player_weapon: object = None  # Weapon instance given to the player
 
 
+# All coordinates are in world space (3200 × 2400), scaled 4× from the old 800×600 screen.
+
 # ── Level 1: Open Water ────────────────────────────────────────────────────────
 level1 = LevelDef(
     name          = "Open Water",
-    player_start  = (80, 300),
-    flag_pos      = (700, 300),
+    player_start  = (320, 1200),
+    flag_pos      = (2800, 1200),
     obstacles     = [
-        {"x": 350, "y": 250, "radius": 20},
-        {"x": 350, "y": 370, "radius": 20},
+        {"x": 1400, "y": 1000, "radius": 80},
+        {"x": 1400, "y": 1480, "radius": 80},
     ],
     enemies       = [
-        {"type": "drift",  "x": 500, "y": 200},
-        {"type": "patrol", "x": 500, "y": 420, "cx": 500, "cy": 400},
+        {"type": "drift",  "x": 2000, "y":  800},
+        {"type": "patrol", "x": 2000, "y": 1680, "cx": 2000, "cy": 1600},
     ],
     splashes      = [
         (GRID_W // 2, GRID_H // 2, 2.0, 8),
@@ -40,24 +42,30 @@ level1 = LevelDef(
 # ── Level 2: The Gauntlet ──────────────────────────────────────────────────────
 level2 = LevelDef(
     name          = "The Gauntlet",
-    player_start  = (80, 300),
-    flag_pos      = (720, 300),
+    player_start  = (320, 1200),
+    flag_pos      = (2880, 1200),
     obstacles     = [
-        # Wall 1 at x=280 — blocks top and bottom, gap in the middle
-        {"x": 280, "y": 100, "radius": 18},
-        {"x": 280, "y": 190, "radius": 18},
-        {"x": 280, "y": 410, "radius": 18},
-        {"x": 280, "y": 500, "radius": 18},
-        # Wall 2 at x=480 — offset gaps
-        {"x": 480, "y":  80, "radius": 18},
-        {"x": 480, "y": 200, "radius": 18},
-        {"x": 480, "y": 360, "radius": 18},
-        {"x": 480, "y": 480, "radius": 18},
+        # Wall 1 at x=1120 — blocks top and bottom, gap in the middle
+        {"x": 1120, "y":  400, "radius": 72},
+        {"x": 1120, "y":  760, "radius": 72},
+        {"x": 1120, "y": 1640, "radius": 72},
+        {"x": 1120, "y": 2000, "radius": 72},
+        # Wall 2 at x=1920 — offset gaps
+        {"x": 1920, "y":  320, "radius": 72},
+        {"x": 1920, "y":  800, "radius": 72},
+        {"x": 1920, "y": 1440, "radius": 72},
+        {"x": 1920, "y": 1920, "radius": 72},
     ],
     enemies       = [
-        {"type": "chase", "x": 160, "y": 130},
-        {"type": "chase", "x": 160, "y": 470},
-        {"type": "snipe", "x": 600, "y": 300},
+        {"type": "chase", "x":  640, "y":  520},
+        {"type": "chase", "x":  640, "y": 1880},
+        {"type": "snipe", "x": 2400, "y": 1200},
+        {"type": "chase", "x":  640, "y":  520},
+        {"type": "chase", "x":  640, "y": 1880},
+        {"type": "snipe", "x": 2400, "y": 1200},
+        {"type": "chase", "x":  640, "y":  520},
+        {"type": "chase", "x":  640, "y": 1880},
+        {"type": "snipe", "x": 2400, "y": 1200},
     ],
     splashes      = [
         (GRID_W // 3,     GRID_H // 3,     1.5, 6),
@@ -69,19 +77,19 @@ level2 = LevelDef(
 # ── Level 3: Crossfire ─────────────────────────────────────────────────────────
 level3 = LevelDef(
     name          = "Crossfire",
-    player_start  = (80, 500),
-    flag_pos      = (700, 100),
+    player_start  = (320, 2000),
+    flag_pos      = (2800,  400),
     obstacles     = [
-        {"x": 380, "y": 270, "radius": 25},
-        {"x": 430, "y": 330, "radius": 25},
-        {"x": 200, "y": 200, "radius": 18},
-        {"x": 600, "y": 400, "radius": 18},
+        {"x": 1520, "y": 1080, "radius": 100},
+        {"x": 1720, "y": 1320, "radius": 100},
+        {"x":  800, "y":  800, "radius":  72},
+        {"x": 2400, "y": 1600, "radius":  72},
     ],
     enemies       = [
-        {"type": "snipe",     "x": 700, "y": 500},
-        {"type": "snipe",     "x": 100, "y": 100},
-        {"type": "artillery", "x": 400, "y": 300},
-        {"type": "drift",     "x": 400, "y": 150},
+        {"type": "snipe",     "x": 2800, "y": 2000},
+        {"type": "snipe",     "x":  400, "y":  400},
+        {"type": "artillery", "x": 1600, "y": 1200},
+        {"type": "drift",     "x": 1600, "y":  600},
     ],
     splashes      = [
         (GRID_W // 4, GRID_H // 4, 2.0, 8),
@@ -93,29 +101,29 @@ level3 = LevelDef(
 # ── Level 4: The Maze ──────────────────────────────────────────────────────────
 level4 = LevelDef(
     name          = "The Maze",
-    player_start  = (60, 60),
-    flag_pos      = (720, 520),
+    player_start  = (240,  240),
+    flag_pos      = (2880, 2080),
     obstacles     = [
-        # S-curve column 1 at x=200 — blocks most of the height except ~y=300
-        {"x": 200, "y": 100, "radius": 20},
-        {"x": 200, "y": 180, "radius": 20},
-        {"x": 200, "y": 380, "radius": 20},
-        {"x": 200, "y": 460, "radius": 20},
-        # S-curve column 2 at x=440 — gap near y=220 instead
-        {"x": 440, "y": 120, "radius": 20},
-        {"x": 440, "y": 320, "radius": 20},
-        {"x": 440, "y": 400, "radius": 20},
-        {"x": 440, "y": 520, "radius": 20},
+        # S-curve column 1 at x=800 — blocks most of the height except ~y=1200
+        {"x":  800, "y":  400, "radius": 80},
+        {"x":  800, "y":  720, "radius": 80},
+        {"x":  800, "y": 1520, "radius": 80},
+        {"x":  800, "y": 1840, "radius": 80},
+        # S-curve column 2 at x=1760 — gap near y=880
+        {"x": 1760, "y":  480, "radius": 80},
+        {"x": 1760, "y": 1280, "radius": 80},
+        {"x": 1760, "y": 1600, "radius": 80},
+        {"x": 1760, "y": 2080, "radius": 80},
         # Flanking guards
-        {"x": 640, "y": 300, "radius": 22},
-        {"x": 340, "y": 520, "radius": 20},
+        {"x": 2560, "y": 1200, "radius": 88},
+        {"x": 1360, "y": 2080, "radius": 80},
     ],
     enemies       = [
-        {"type": "chase",     "x": 300, "y": 300},
-        {"type": "patrol",    "x": 600, "y": 200, "cx": 600, "cy": 200},
-        {"type": "snipe",     "x": 700, "y": 400},
-        {"type": "artillery", "x": 400, "y": 500},
-        {"type": "drift",     "x": 550, "y": 100},
+        {"type": "chase",     "x": 1200, "y": 1200},
+        {"type": "patrol",    "x": 2400, "y":  800, "cx": 2400, "cy":  800},
+        {"type": "snipe",     "x": 2800, "y": 1600},
+        {"type": "artillery", "x": 1600, "y": 2000},
+        {"type": "drift",     "x": 2200, "y":  400},
     ],
     splashes      = [
         (GRID_W // 4, GRID_H // 4, 2.0, 7),
@@ -127,15 +135,15 @@ level4 = LevelDef(
 # ── Level 5: River of No Return (survival) ─────────────────────────────────────
 level5 = LevelDef(
     name          = "No Return",
-    player_start  = (650, 300),
-    flag_pos      = None,       # win by surviving
+    player_start  = (2600, 1200),
+    flag_pos      = None,           # win by surviving
     obstacles     = [],
     enemies       = [
-        {"type": "drift",  "x": 500, "y": 150},
-        {"type": "drift",  "x": 500, "y": 450},
-        {"type": "chase",  "x": 400, "y": 300},
-        {"type": "patrol", "x": 300, "y": 200, "cx": 300, "cy": 200},
-        {"type": "snipe",  "x": 600, "y": 100},
+        {"type": "drift",  "x": 2000, "y":  600},
+        {"type": "drift",  "x": 2000, "y": 1800},
+        {"type": "chase",  "x": 1600, "y": 1200},
+        {"type": "patrol", "x": 1200, "y":  800, "cx": 1200, "cy":  800},
+        {"type": "snipe",  "x": 2400, "y":  400},
     ],
     splashes      = [
         (GRID_W * 3 // 4, GRID_H // 2, 2.5, 10),

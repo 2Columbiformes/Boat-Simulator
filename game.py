@@ -2,8 +2,8 @@ import math
 import pygame
 import numpy as np
 
-from water import (WaterGrid, WIDTH, HEIGHT, GRID_W, GRID_H,
-                   CELL_W, CELL_H, FPS,
+from water import (WaterGrid, WIDTH, HEIGHT, WORLD_W, WORLD_H,
+                   GRID_W, GRID_H, CELL_W, CELL_H, FPS,
                    WAVE_GRAD_K, DRAG_K, DISPLACE_AMP, RIPPLE_AMP,
                    SPLASH_AMP, SPLASH_R,
                    COLOR_DEEP, COLOR_SHALLOW, COLOR_CREST)
@@ -53,6 +53,7 @@ class WaterGame:
         self._water_surf = pygame.Surface((width, height))
         self._font       = pygame.font.SysFont(None, 18)
         self._frame      = 0
+        self.zoom        = 1.0          # 1.0 = normal; >1 = zoomed in
 
         # Flag / goal
         self.flag_pos    = flag_pos
@@ -66,6 +67,12 @@ class WaterGame:
         self._scroll_accum  = 0.0
 
         self._result: str | None = None
+
+        # World / camera (world is larger than the viewport)
+        self.world_w = WORLD_W
+        self.world_h = WORLD_H
+        self.cam_x   = 0.0
+        self.cam_y   = 0.0
 
         # Player weapon (assigned externally before run())
         self.player_weapon = None
@@ -109,6 +116,7 @@ class WaterGame:
             self._update_projectiles(dt)
             self._update_explosions(dt)
             self._check_end_conditions()
+            self._update_camera()
             self._render()
             self._frame += 1
             if self._frame % self.fps == 0:
@@ -126,6 +134,30 @@ class WaterGame:
             status = f"hp={e.hp:.0f}/{e.max_hp:.0f}" if not e.static else "static"
             print(f"  {tag}:({e.x:.0f},{e.y:.0f}) {status}", end="")
         print()
+
+    # ── Camera ────────────────────────────────────────────────────────────────
+    def _update_camera(self):
+        if self.player is None:
+            return
+        if self.survival:
+            # Hard left/right boundaries; y still torus
+            self.cam_x = max(0.0, min(self.player.x - self.width  / 2,
+                                      self.world_w   - self.width))
+            self.cam_y = self.player.y - self.height / 2
+        else:
+            self.cam_x = self.player.x - self.width  / 2
+            self.cam_y = self.player.y - self.height / 2
+
+    def _w2s(self, wx: float, wy: float):
+        """World → screen (float) coords, using torus minimum-image."""
+        sx = wx - self.cam_x
+        sy = wy - self.cam_y
+        if not self.survival:
+            if sx >  self.world_w / 2: sx -= self.world_w
+            elif sx < -self.world_w / 2: sx += self.world_w
+        if sy >  self.world_h / 2: sy -= self.world_h
+        elif sy < -self.world_h / 2: sy += self.world_h
+        return sx, sy
 
     # ── Survival mode ─────────────────────────────────────────────────────────
     def _update_survival(self, dt: float):
@@ -158,8 +190,8 @@ class WaterGame:
         if self.flag_pos is not None:
             dx = self.player.x - self.flag_pos[0]
             dy = self.player.y - self.flag_pos[1]
-            dx -= self.width  * round(dx / self.width)
-            dy -= self.height * round(dy / self.height)
+            dx -= self.world_w * round(dx / self.world_w)
+            dy -= self.world_h * round(dy / self.world_h)
             if math.hypot(dx, dy) < self.flag_radius:
                 self._result = "win"
                 self.running = False
@@ -195,7 +227,9 @@ class WaterGame:
                 mx, my = event.pos
                 # Left click fires the player weapon (if any); right click always splashes
                 if event.button != 1 or self.player_weapon is None:
-                    self.water.splash(mx / CELL_W, my / CELL_H, SPLASH_AMP, SPLASH_R)
+                    wx = (mx + self.cam_x) % self.world_w
+                    wy = (my + self.cam_y) % self.world_h
+                    self.water.splash(wx / CELL_W, wy / CELL_H, SPLASH_AMP, SPLASH_R)
 
     def _handle_input(self):
         if self.player is None or not self.player.alive:
@@ -216,7 +250,10 @@ class WaterGame:
         if (self.player_weapon and self.player.alive
                 and pygame.mouse.get_pressed()[0]):
             mx, my = pygame.mouse.get_pos()
-            angle  = math.atan2(my - self.player.y, mx - self.player.x)
+            # Direction: player screen pos → mouse (camera offset cancels out)
+            psx = self.player.x - self.cam_x
+            psy = self.player.y - self.cam_y
+            angle  = math.atan2(my - psy, mx - psx)
             projs  = self.player_weapon.fire(self.player.x, self.player.y, angle)
             for p in projs:
                 p.hits.add(id(self.player))   # can't damage yourself
@@ -248,14 +285,14 @@ class WaterGame:
             e.vx += e.ax * dt;  e.vy += e.ay * dt
             if self.survival:
                 e.x += e.vx * dt
-                e.y  = (e.y + e.vy * dt) % self.height
+                e.y  = (e.y + e.vy * dt) % self.world_h
                 if e.x < 0:
                     e.hp = 0.0          # swept off the left edge → dead
-                elif e.x > self.width:
-                    e.x = float(self.width)
+                elif e.x > self.world_w:
+                    e.x = float(self.world_w)
             else:
-                e.x = (e.x + e.vx * dt) % self.width
-                e.y = (e.y + e.vy * dt) % self.height
+                e.x = (e.x + e.vx * dt) % self.world_w
+                e.y = (e.y + e.vy * dt) % self.world_h
             e.ax = 0.0;  e.ay = 0.0
 
     def _resolve_collisions(self):
@@ -263,19 +300,19 @@ class WaterGame:
             if not a.alive: continue
             for b in self.entities[i + 1:]:
                 if not b.alive: continue
-                ddx = b.x - a.x;  ddx -= self.width  * round(ddx / self.width)
-                ddy = b.y - a.y;  ddy -= self.height * round(ddy / self.height)
+                ddx = b.x - a.x;  ddx -= self.world_w * round(ddx / self.world_w)
+                ddy = b.y - a.y;  ddy -= self.world_h * round(ddy / self.world_h)
                 dist = math.hypot(ddx, ddy)
                 min_dist = a.radius + b.radius
                 if dist >= min_dist or dist < 1e-6: continue
                 nx = ddx / dist;  ny = ddy / dist
                 overlap = min_dist - dist
                 if not a.static:
-                    a.x = (a.x - nx * overlap * (0.5 if not b.static else 1.0)) % self.width
-                    a.y = (a.y - ny * overlap * (0.5 if not b.static else 1.0)) % self.height
+                    a.x = (a.x - nx * overlap * (0.5 if not b.static else 1.0)) % self.world_w
+                    a.y = (a.y - ny * overlap * (0.5 if not b.static else 1.0)) % self.world_h
                 if not b.static:
-                    b.x = (b.x + nx * overlap * (0.5 if not a.static else 1.0)) % self.width
-                    b.y = (b.y + ny * overlap * (0.5 if not a.static else 1.0)) % self.height
+                    b.x = (b.x + nx * overlap * (0.5 if not a.static else 1.0)) % self.world_w
+                    b.y = (b.y + ny * overlap * (0.5 if not a.static else 1.0)) % self.world_h
                 rel_vn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny
                 if rel_vn >= 0: continue
                 impact = abs(rel_vn)
@@ -292,8 +329,8 @@ class WaterGame:
                 dmg = impact * COLLISION_DMG_K
                 if not a.static: a.hp = max(0.0, a.hp - dmg)
                 if not b.static: b.hp = max(0.0, b.hp - dmg)
-                cx = (a.x + ddx * 0.5) % self.width
-                cy = (a.y + ddy * 0.5) % self.height
+                cx = (a.x + ddx * 0.5) % self.world_w
+                cy = (a.y + ddy * 0.5) % self.world_h
                 self.water.splash(cx / CELL_W, cy / CELL_H, impact * COLLISION_SPLASH, 3)
 
     # ── Enemy AI ───────────────────────────────────────────────────────────────
@@ -304,8 +341,8 @@ class WaterGame:
 
     # ── Projectiles ────────────────────────────────────────────────────────────
     def _torus_dist(self, ax, ay, bx, by) -> float:
-        dx = bx - ax;  dx -= self.width  * round(dx / self.width)
-        dy = by - ay;  dy -= self.height * round(dy / self.height)
+        dx = bx - ax;  dx -= self.world_w * round(dx / self.world_w)
+        dy = by - ay;  dy -= self.world_h * round(dy / self.world_h)
         return math.hypot(dx, dy)
 
     def _update_projectiles(self, dt: float):
@@ -321,14 +358,14 @@ class WaterGame:
             proj.x += proj.vx * dt
             proj.y += proj.vy * dt
             if self.survival:
-                if proj.x < 0 or proj.x > self.width:
+                if proj.x < 0 or proj.x > self.world_w:
                     if proj.explodes:
                         self._do_explosion(proj)
                     continue
-                proj.y %= self.height
+                proj.y %= self.world_h
             else:
-                proj.x %= self.width
-                proj.y %= self.height
+                proj.x %= self.world_w
+                proj.y %= self.world_h
 
             # Hit-test against all living non-static entities
             killed = False
@@ -404,86 +441,131 @@ class WaterGame:
                 lbl = self._font.render(e.name, True, (220, 220, 220))
                 self.screen.blit(lbl, (sx - lbl.get_width()//2, by - 14))
 
+    def _draw_flag_arrow(self, sx: float, sy: float):
+        """Arrow at the screen edge pointing toward the off-screen flag."""
+        cx = self.width  // 2
+        cy = self.height // 2
+        dx, dy = sx - cx, sy - cy
+        if dx == 0 and dy == 0:
+            return
+        ln = math.hypot(dx, dy)
+        ndx, ndy = dx / ln, dy / ln
+
+        margin = 24
+        ts = []
+        if ndx > 1e-9:
+            t = (self.width  - margin - cx) / ndx
+            if margin <= cy + t * ndy <= self.height - margin: ts.append(t)
+        elif ndx < -1e-9:
+            t = (margin - cx) / ndx
+            if margin <= cy + t * ndy <= self.height - margin: ts.append(t)
+        if ndy > 1e-9:
+            t = (self.height - margin - cy) / ndy
+            if margin <= cx + t * ndx <= self.width - margin: ts.append(t)
+        elif ndy < -1e-9:
+            t = (margin - cy) / ndy
+            if margin <= cx + t * ndx <= self.width - margin: ts.append(t)
+        if not ts:
+            return
+
+        t  = min(ts)
+        ax = int(cx + ndx * t)
+        ay = int(cy + ndy * t)
+        al, aw = 18, 10    # arrow length, half-width
+        tip = (ax, ay)
+        bl  = (ax - int(ndx * al) - int(ndy * aw),
+               ay - int(ndy * al) + int(ndx * aw))
+        br  = (ax - int(ndx * al) + int(ndy * aw),
+               ay - int(ndy * al) - int(ndx * aw))
+        pygame.draw.polygon(self.screen, (50, 220, 80),   [tip, bl, br])
+        pygame.draw.polygon(self.screen, (200, 255, 200), [tip, bl, br], 2)
+
     def _render(self):
-        # Water surface
-        h_norm = np.clip(self.water.h / SPLASH_AMP, -1.0, 1.0) * 0.5 + 0.5
-        t_low  = np.clip(h_norm * 2.0,         0.0, 1.0)[..., np.newaxis]
-        t_high = np.clip((h_norm - 0.5) * 2.0, 0.0, 1.0)[..., np.newaxis]
-        color_grid = (
+        # ── Water: extract camera-relative slice from the grid ──
+        cam_gx  = self.cam_x / CELL_W
+        cam_gy  = self.cam_y / CELL_H
+        off_x   = int(cam_gx) % GRID_W
+        off_y   = int(cam_gy) % GRID_H
+        frac_px = int((cam_gx % 1.0) * CELL_W)
+        frac_py = int((cam_gy % 1.0) * CELL_H)
+        cells_x = self.width  // CELL_W + 2
+        cells_y = self.height // CELL_H + 2
+        h_view  = np.roll(np.roll(self.water.h, -off_y, axis=0), -off_x, axis=1)
+        h_sl    = h_view[:cells_y, :cells_x]
+        h_norm  = np.clip(h_sl / SPLASH_AMP, -1.0, 1.0) * 0.5 + 0.5
+        t_low   = np.clip(h_norm * 2.0,         0.0, 1.0)[..., np.newaxis]
+        t_high  = np.clip((h_norm - 0.5) * 2.0, 0.0, 1.0)[..., np.newaxis]
+        color_sl = (
             (1.0 - t_low) * COLOR_DEEP + t_low * COLOR_SHALLOW
             - t_high * COLOR_SHALLOW   + t_high * COLOR_CREST
         ).astype(np.uint8)
-        upscaled = np.repeat(np.repeat(color_grid, CELL_H, axis=0), CELL_W, axis=1)
-        np.copyto(self._pixel_buf, upscaled.transpose(1, 0, 2))
+        big  = np.repeat(np.repeat(color_sl, CELL_H, axis=0), CELL_W, axis=1)
+        view = big[frac_py : frac_py + self.height, frac_px : frac_px + self.width]
+        np.copyto(self._pixel_buf, view.transpose(1, 0, 2))
         pygame.surfarray.blit_array(self._water_surf, self._pixel_buf)
         self.screen.blit(self._water_surf, (0, 0))
 
-        # Entities — full torus ghosts normally; Y-only in survival (no left/right wrap)
-        ox_offsets = (0,) if self.survival else (0, self.width, -self.width)
+        # ── Entities ──
         for e in self.entities:
-            cx, cy = int(e.x), int(e.y);  r = int(e.radius)
-            for ox in ox_offsets:
-                sx = cx + ox
-                if sx + r < 0 or sx - r >= self.width: continue
-                for oy in (0, self.height, -self.height):
-                    sy = cy + oy
-                    if sy + r < 0 or sy - r >= self.height: continue
-                    self._draw_entity_at(e, sx, sy)
+            sx, sy = self._w2s(e.x, e.y)
+            r = int(e.radius)
+            if sx + r >= 0 and sx - r < self.width and sy + r >= 0 and sy - r < self.height:
+                self._draw_entity_at(e, int(sx), int(sy))
 
-        # Projectiles — same ghost logic
+        # ── Projectiles ──
         for proj in self.projectiles:
-            px, py = int(proj.x), int(proj.y)
+            sx, sy = self._w2s(proj.x, proj.y)
             pr = 5 if proj.explodes else 3
-            for ox in ox_offsets:
-                sx = px + ox
-                if sx + pr < 0 or sx - pr >= self.width: continue
-                for oy in (0, self.height, -self.height):
-                    sy = py + oy
-                    if sy + pr < 0 or sy - pr >= self.height: continue
-                    pygame.draw.circle(self.screen, proj.color, (sx, sy), pr)
+            if sx + pr >= 0 and sx - pr < self.width and sy + pr >= 0 and sy - pr < self.height:
+                pygame.draw.circle(self.screen, proj.color, (int(sx), int(sy)), pr)
 
-        # Flag
+        # ── Flag ──
         if self.flag_pos is not None:
-            fx, fy   = int(self.flag_pos[0]), int(self.flag_pos[1])
-            pygame.draw.line(self.screen, (220, 220, 220), (fx, fy + 16), (fx, fy - 20), 3)
-            pygame.draw.polygon(self.screen, (50, 220, 80),
-                                [(fx, fy - 20), (fx + 18, fy - 13), (fx, fy - 6)])
-            pulse_r = int(self.flag_radius) + 4 + int(4 * math.sin(self._frame * 0.15))
-            pygame.draw.circle(self.screen, (50, 220, 80), (fx, fy), pulse_r, 2)
+            fsx, fsy = self._w2s(self.flag_pos[0], self.flag_pos[1])
+            fx, fy = int(fsx), int(fsy)
+            if 0 <= fx < self.width and 0 <= fy < self.height:
+                pygame.draw.line(self.screen, (220, 220, 220), (fx, fy + 16), (fx, fy - 20), 3)
+                pygame.draw.polygon(self.screen, (50, 220, 80),
+                                    [(fx, fy - 20), (fx + 18, fy - 13), (fx, fy - 6)])
+                pulse_r = 36 + int(6 * math.sin(self._frame * 0.15))
+                pygame.draw.circle(self.screen, (50, 220, 80), (fx, fy), pulse_r, 2)
+            else:
+                self._draw_flag_arrow(fsx, fsy)
 
-        # Explosion flashes
+        # ── Explosion flashes ──
         for exp in self._explosions:
+            sx, sy = self._w2s(exp["x"], exp["y"])
             frac = exp["t"] / exp["max_t"]
             r    = int(exp["r"] + (exp["max_r"] - exp["r"]) * (1 - frac))
             alpha = int(200 * frac)
-            surf  = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
-            pygame.draw.circle(surf, (255, 140, 20, alpha), (r, r), r)
-            self.screen.blit(surf, (int(exp["x"]) - r, int(exp["y"]) - r))
+            if sx + r >= 0 and sx - r < self.width and sy + r >= 0 and sy - r < self.height:
+                surf = pygame.Surface((r * 2, r * 2), pygame.SRCALPHA)
+                pygame.draw.circle(surf, (255, 140, 20, alpha), (r, r), r)
+                self.screen.blit(surf, (int(sx) - r, int(sy) - r))
 
-        # Player weapon HUD (bottom-left)
+        # ── Player weapon HUD (bottom-left) ──
         if self.player_weapon:
             wname  = type(self.player_weapon).__name__
             max_cd = 1.0 / max(self.player_weapon.fire_rate, 1e-9)
             frac   = 1.0 - min(self.player_weapon._cooldown / max_cd, 1.0)
             bar_w, bar_h = 120, 8
-            bx = 10;  by = self.height - 30
-            pygame.draw.rect(self.screen, (40, 40, 40),    (bx, by, bar_w, bar_h))
+            bx, by = 10, self.height - 30
+            pygame.draw.rect(self.screen, (40, 40, 40),   (bx, by, bar_w, bar_h))
             fill_c = (50, 220, 80) if self.player_weapon.ready else (220, 160, 30)
-            pygame.draw.rect(self.screen, fill_c,           (bx, by, int(bar_w * frac), bar_h))
-            pygame.draw.rect(self.screen, (150, 150, 150),  (bx, by, bar_w, bar_h), 1)
-            lbl = self._font.render(wname, True, (220, 220, 220))
-            self.screen.blit(lbl, (bx, by - 16))
+            pygame.draw.rect(self.screen, fill_c,          (bx, by, int(bar_w * frac), bar_h))
+            pygame.draw.rect(self.screen, (150, 150, 150), (bx, by, bar_w, bar_h), 1)
+            self.screen.blit(self._font.render(wname, True, (220, 220, 220)), (bx, by - 16))
 
-        # Survival HUD
+        # ── Survival HUD (top-center) ──
         if self.survival:
-            mins  = int(self._survival_t) // 60
-            secs  = int(self._survival_t) % 60
-            tc    = (255, 80, 80) if self._survival_t < 30 else (255, 220, 80)
-            hud   = self._font.render(f"Survive: {mins}:{secs:02d}", True, tc)
+            mins = int(self._survival_t) // 60
+            secs = int(self._survival_t) % 60
+            tc   = (255, 80, 80) if self._survival_t < 30 else (255, 220, 80)
+            hud  = self._font.render(f"Survive: {mins}:{secs:02d}", True, tc)
             self.screen.blit(hud, (self.width // 2 - hud.get_width() // 2, 8))
-            # Left-edge danger vignette when player is close to the deadly left boundary
-            if self.player and self.player.x < 150:
-                alpha = int(180 * max(0.0, 1.0 - self.player.x / 150.0))
+            # Left-edge vignette when player is close to dying
+            if self.player and self.player.x < 600:
+                alpha = int(180 * max(0.0, 1.0 - self.player.x / 600.0))
                 edge  = pygame.Surface((60, self.height), pygame.SRCALPHA)
                 edge.fill((200, 20, 20, alpha))
                 self.screen.blit(edge, (0, 0))
