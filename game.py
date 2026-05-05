@@ -197,27 +197,22 @@ class WaterGame:
             target_y = max(0.0, min(self.player.y - half_h, max_cam_y))
             self.cam_x += (target_x - self.cam_x) * 0.08
             self.cam_y += (target_y - self.cam_y) * 0.08
-        else:
-            target_x = self.player.x - half_w
-            target_y = self.player.y - half_h
-            dx = target_x - self.cam_x
-            dy = target_y - self.cam_y
-            dx -= self.world_w * round(dx / self.world_w)
-            dy -= self.world_h * round(dy / self.world_h)
-            self.cam_x += dx * 0.08
-            self.cam_y += dy * 0.08
+        else:  # torus — camera clamped (entities are bounded, not wrapping)
+            max_cam_x = max(0.0, self.world_w - self.width  / self.zoom)
+            max_cam_y = max(0.0, self.world_h - self.height / self.zoom)
+            target_x = max(0.0, min(self.player.x - half_w, max_cam_x))
+            target_y = max(0.0, min(self.player.y - half_h, max_cam_y))
+            self.cam_x += (target_x - self.cam_x) * 0.08
+            self.cam_y += (target_y - self.cam_y) * 0.08
 
     def _w2s(self, wx: float, wy: float):
         """World → screen (float) coords."""
         if self.survival:
             sx = wx - self.cam_x
             sy = (wy - self.cam_y) % self.world_h
-        elif self.topology == "bounded":
+        else:
             sx = wx - self.cam_x
             sy = wy - self.cam_y
-        else:
-            sx = (wx - self.cam_x) % self.world_w
-            sy = (wy - self.cam_y) % self.world_h
         return sx * self.zoom, sy * self.zoom
 
     # ── Survival mode ─────────────────────────────────────────────────────────
@@ -251,9 +246,6 @@ class WaterGame:
         if self.flag_pos is not None:
             dx = self.player.x - self.flag_pos[0]
             dy = self.player.y - self.flag_pos[1]
-            if self.topology != "bounded":
-                dx -= self.world_w * round(dx / self.world_w)
-                dy -= self.world_h * round(dy / self.world_h)
             if math.hypot(dx, dy) < self.flag_radius:
                 self._result = "win"
                 self.running = False
@@ -366,13 +358,16 @@ class WaterGame:
                 elif e.x > self.world_w - e.radius: e.x = self.world_w - e.radius; e.vx = -abs(e.vx)
                 if e.y < e.radius:              e.y = e.radius;             e.vy = abs(e.vy)
                 elif e.y > self.world_h - e.radius: e.y = self.world_h - e.radius; e.vy = -abs(e.vy)
-            else:
-                e.x = (e.x + e.vx * dt) % self.world_w
-                e.y = (e.y + e.vy * dt) % self.world_h
+            else:  # torus — entities bounce at walls; projectiles still wrap
+                e.x += e.vx * dt;  e.y += e.vy * dt
+                if e.x < e.radius:                  e.x = e.radius;                e.vx = abs(e.vx)
+                elif e.x > self.world_w - e.radius: e.x = self.world_w - e.radius; e.vx = -abs(e.vx)
+                if e.y < e.radius:                  e.y = e.radius;                e.vy = abs(e.vy)
+                elif e.y > self.world_h - e.radius: e.y = self.world_h - e.radius; e.vy = -abs(e.vy)
             e.ax = 0.0;  e.ay = 0.0
 
     def _resolve_collisions(self):
-        torus = self.topology != "bounded" and not self.survival
+        torus = False  # entities bounce at walls in all modes; no wrap needed
         for i, a in enumerate(self.entities):
             if not a.alive: continue
             for b in self.entities[i + 1:]:
@@ -562,61 +557,119 @@ class WaterGame:
         self.add_enemy(_SPAWN_FACTORIES[random.choice(self.spawn_pool)](sx, sy))
 
     # ── Rendering ──────────────────────────────────────────────────────────────
-    @staticmethod
-    def _poly_pts(n: int, r: float, angle_offset: float = 0.0):
-        """Return n-gon points at radius r, rotated by angle_offset."""
-        return [
-            (r * math.cos(2 * math.pi * i / n + angle_offset),
-             r * math.sin(2 * math.pi * i / n + angle_offset))
-            for i in range(n)
-        ]
-
-    @staticmethod
-    def _transform_pts(pts, sx, sy, r, angle):
-        """Scale by r, rotate by angle, translate to (sx, sy)."""
-        ca, sa = math.cos(angle), math.sin(angle)
-        out = []
-        for px, py in pts:
-            rx = px * r * ca - py * r * sa
-            ry = px * r * sa + py * r * ca
-            out.append((int(sx + rx), int(sy + ry)))
-        return out
+    _NAME_MAP = {
+        "drifter":   "Pistol Grunt",
+        "chaser":    "Chaser",
+        "sniper":    "Sniper",
+        "artillery": "Rocketeer",
+        "patrol":    "Gunner",
+        "boss":      "Bomber",
+    }
 
     def _draw_enemy_shape(self, e: Entity, sx: int, sy: int, r: int):
-        """Draw a type-specific polygon for an enemy entity."""
-        name = (e.name or "").lower()
-        angle = math.atan2(e.vy, e.vx) if math.hypot(e.vx, e.vy) > 1 else 0.0
-        col = e.color
-        lite = (min(255, col[0] + 60), min(255, col[1] + 60), min(255, col[2] + 60))
+        """Draw enemy using old-style boat/ship designs."""
+        vis_name = self._NAME_MAP.get((e.name or "").lower(), "Pistol Grunt")
+        vx, vy = e.vx, e.vy
+        angle = math.atan2(vy, vx) if (vx != 0 or vy != 0) else 0
+        speed = math.hypot(vx, vy)
+        moving = speed > 5.0
 
-        if name == "chaser":
-            pts = self._transform_pts([(0,-1),(0.85,0.5),(-0.85,0.5)], sx, sy, r, angle - math.pi/2)
-            pygame.draw.polygon(self.screen, col, pts)
-            pygame.draw.polygon(self.screen, lite, pts, 1)
-        elif name == "sniper":
-            pts = self._transform_pts([(0,-1.4),(0.6,0),(0,1.4),(-0.6,0)], sx, sy, r, angle)
-            pygame.draw.polygon(self.screen, col, pts)
-            pygame.draw.polygon(self.screen, lite, pts, 1)
-        elif name == "artillery":
-            sq = self._transform_pts([(-1,-1),(1,-1),(1,1),(-1,1)], sx, sy, r * 0.75, 0)
-            pygame.draw.polygon(self.screen, col, sq)
-            pygame.draw.polygon(self.screen, lite, sq, 1)
-            # barrel nub pointing in direction of motion
-            bx = int(sx + math.cos(angle) * r * 1.1)
-            by = int(sy + math.sin(angle) * r * 1.1)
-            pygame.draw.line(self.screen, lite, (sx, sy), (bx, by), max(3, r // 4))
-        elif name == "patrol":
-            pts = self._transform_pts(self._poly_pts(6, 1.0, 0), sx, sy, r, 0)
-            pygame.draw.polygon(self.screen, col, pts)
-            pygame.draw.polygon(self.screen, lite, pts, 1)
-        elif name == "boss":
-            pygame.draw.circle(self.screen, col, (sx, sy), r)
-            pygame.draw.circle(self.screen, lite, (sx, sy), r, 2)
-            pygame.draw.circle(self.screen, lite, (sx, sy), max(r - 6, 4), 1)
-        else:  # drifter / fallback: pentagon
-            pts = self._transform_pts(self._poly_pts(5, 1.0, -math.pi/2), sx, sy, r, 0)
-            pygame.draw.polygon(self.screen, col, pts)
-            pygame.draw.polygon(self.screen, lite, pts, 1)
+        def rot_p(px, py):
+            rx = px * math.cos(angle) - py * math.sin(angle)
+            ry = px * math.sin(angle) + py * math.cos(angle)
+            return (sx + rx, sy + ry)
+
+        if vis_name == "Chaser":
+            points = [(r, 0), (-r, r * 0.8), (-r * 0.4, 0), (-r, -r * 0.8)]
+            rpts = [rot_p(px, py) for px, py in points]
+            pygame.draw.polygon(self.screen, (160, 40, 40), rpts)
+            pygame.draw.polygon(self.screen, (255, 140, 0), rpts, 2)
+            ecx, ecy = rot_p(-r * 0.6, 0)
+            pygame.draw.circle(self.screen, (0, 200, 255), (int(ecx), int(ecy)), 3)
+
+        elif vis_name == "Bomber":
+            pygame.draw.circle(self.screen, (50, 50, 55), (sx, sy), r)
+            diag = r * 0.707
+            for dx2, dy2 in [(r, 0), (-r, 0), (0, r), (0, -r),
+                              (diag, diag), (-diag, diag), (diag, -diag), (-diag, -diag)]:
+                pygame.draw.line(self.screen, (35, 35, 40), (sx, sy), (sx + dx2, sy + dy2), 2)
+            for i in range(8):
+                sa = i * (2 * math.pi / 8)
+                sl = r * 0.6
+                spike_pts = [
+                    (sx + (r + sl) * math.cos(sa), sy + (r + sl) * math.sin(sa)),
+                    (sx + r * 0.9 * math.cos(sa - 0.2), sy + r * 0.9 * math.sin(sa - 0.2)),
+                    (sx + r * 0.9 * math.cos(sa + 0.2), sy + r * 0.9 * math.sin(sa + 0.2)),
+                ]
+                pygame.draw.polygon(self.screen, (120, 120, 125), spike_pts)
+            cr = int(r * 0.4)
+            pygame.draw.circle(self.screen, (0, 150, 180), (sx, sy), cr)
+            pygame.draw.circle(self.screen, (0, 255, 255), (sx, sy), max(1, int(cr * 0.6)))
+
+        elif vis_name == "Pistol Grunt":
+            hull_pts = [(r*0.9,-r*0.4),(r*0.9,r*0.4),(r*0.4,r*0.85),(-r*0.9,r*0.85),(-r*0.9,-r*0.85),(r*0.4,-r*0.85)]
+            pygame.draw.polygon(self.screen, (200,205,210), [rot_p(px,py) for px,py in hull_pts])
+            pygame.draw.polygon(self.screen, (90,95,100),   [rot_p(px,py) for px,py in hull_pts], 2)
+            deck_pts = [(r*0.6,-r*0.3),(r*0.6,r*0.3),(r*0.2,r*0.6),(-r*0.7,r*0.6),(-r*0.7,-r*0.6),(r*0.2,-r*0.6)]
+            pygame.draw.polygon(self.screen, (150,155,160), [rot_p(px,py) for px,py in deck_pts])
+            cabin_pts = [(r*0.3,-r*0.4),(r*0.3,r*0.4),(-r*0.5,r*0.4),(-r*0.5,-r*0.4)]
+            pygame.draw.polygon(self.screen, (110,115,120), [rot_p(px,py) for px,py in cabin_pts])
+            for my in [-r*0.65, r*0.65]:
+                m_pts = [(-r*0.7,my-r*0.25),(-r*1.1,my-r*0.25),(-r*1.1,my+r*0.25),(-r*0.7,my+r*0.25)]
+                pygame.draw.polygon(self.screen, (220,40,40), [rot_p(px,py) for px,py in m_pts])
+                if moving:
+                    pygame.draw.line(self.screen, (255,200,0), rot_p(-r*1.1,my), rot_p(-r*1.8,my), 3)
+            gtx, gty = rot_p(r*0.4, 0)
+            pygame.draw.line(self.screen, (60,60,65), rot_p(r*0.4,0), rot_p(r*1.2,0), 4)
+            pygame.draw.circle(self.screen, (130,135,140), (int(gtx),int(gty)), int(r*0.35))
+
+        elif vis_name == "Gunner":
+            hull_pts = [(r*0.9,-r*0.5),(r*0.9,r*0.5),(r*0.4,r*1.0),(-r*0.9,r*1.0),(-r*0.9,-r*1.0),(r*0.4,-r*1.0)]
+            pygame.draw.polygon(self.screen, (80,110,60),  [rot_p(px,py) for px,py in hull_pts])
+            pygame.draw.polygon(self.screen, (40,50,30),   [rot_p(px,py) for px,py in hull_pts], 2)
+            deck_pts = [(r*0.6,-r*0.4),(r*0.6,r*0.4),(r*0.2,r*0.8),(-r*0.7,r*0.8),(-r*0.7,-r*0.8),(r*0.2,-r*0.8)]
+            pygame.draw.polygon(self.screen, (140,145,150), [rot_p(px,py) for px,py in deck_pts])
+            cabin_pts = [(r*0.3,-r*0.5),(r*0.3,r*0.5),(-r*0.6,r*0.5),(-r*0.6,-r*0.5)]
+            pygame.draw.polygon(self.screen, (110,115,120), [rot_p(px,py) for px,py in cabin_pts])
+            for my in [-r*0.8, r*0.8]:
+                m_pts = [(-r*0.7,my-r*0.25),(-r*1.1,my-r*0.25),(-r*1.1,my+r*0.25),(-r*0.7,my+r*0.25)]
+                pygame.draw.polygon(self.screen, (220,40,40), [rot_p(px,py) for px,py in m_pts])
+                if moving:
+                    pygame.draw.line(self.screen, (255,200,0), rot_p(-r*1.1,my), rot_p(-r*1.8,my), 3)
+            bs = r * 0.25
+            pygame.draw.line(self.screen, (40,40,45), rot_p(r*0.3,-bs/2), rot_p(r*1.4,-bs/2), 4)
+            pygame.draw.line(self.screen, (40,40,45), rot_p(r*0.3, bs/2), rot_p(r*1.4, bs/2), 4)
+            gc_pts = [(r*0.4,-r*0.25),(r*0.4,r*0.25),(-r*0.1,r*0.25),(-r*0.1,-r*0.25)]
+            pygame.draw.polygon(self.screen, (90,95,100), [rot_p(px,py) for px,py in gc_pts])
+
+        elif vis_name == "Sniper":
+            hull_pts = [(r*1.4,0),(r*0.5,r*0.4),(-r*0.9,r*0.4),(-r*0.9,-r*0.4),(r*0.5,-r*0.4)]
+            pygame.draw.polygon(self.screen, (90,40,150), [rot_p(px,py) for px,py in hull_pts])
+            for sign in [-1, 1]:
+                p_pts = [(r*0.8,sign*r*0.4),(r*0.2,sign*r*0.8),(-r*0.9,sign*r*0.8),(-r*0.9,sign*r*0.4)]
+                pygame.draw.polygon(self.screen, (110,60,180), [rot_p(px,py) for px,py in p_pts])
+            c_pts = [(r*0.2,-r*0.3),(r*0.5,0),(r*0.2,r*0.3),(-r*0.6,r*0.3),(-r*0.6,-r*0.3)]
+            pygame.draw.polygon(self.screen, (40,40,45), [rot_p(px,py) for px,py in c_pts])
+            pygame.draw.line(self.screen, (30,30,35), rot_p(r*0.4,0), rot_p(r*2.2,0), 4)
+            for my in [-r*0.6, r*0.6]:
+                m_pts = [(-r*0.9,my-r*0.2),(-r*1.2,my-r*0.2),(-r*1.2,my+r*0.2),(-r*0.9,my+r*0.2)]
+                pygame.draw.polygon(self.screen, (255,20,147), [rot_p(px,py) for px,py in m_pts])
+                if moving:
+                    pygame.draw.line(self.screen, (255,100,200), rot_p(-r*1.2,my), rot_p(-r*2.0,my), 3)
+
+        else:  # Rocketeer (artillery / fallback)
+            hull_pts = [(r*0.8,-r*0.7),(r*0.8,r*0.7),(r*0.3,r*0.9),(-r*0.8,r*0.9),(-r*0.8,-r*0.9),(r*0.3,-r*0.9)]
+            pygame.draw.polygon(self.screen, (55,60,65),  [rot_p(px,py) for px,py in hull_pts])
+            box_pts = [(r*0.7,-r*0.45),(r*0.7,r*0.45),(r*0.1,r*0.45),(r*0.1,-r*0.45)]
+            pygame.draw.polygon(self.screen, (80,85,90), [rot_p(px,py) for px,py in box_pts])
+            for ty in [-r*0.25, 0, r*0.25]:
+                tx, ty_r = rot_p(r*0.7, ty)
+                pygame.draw.circle(self.screen, (220,50,50), (int(tx),int(ty_r)), max(2,int(r*0.12)))
+            for my in [-r*0.6, r*0.6]:
+                m_pts = [(-r*0.8,my-r*0.3),(-r*1.2,my-r*0.3),(-r*1.2,my+r*0.3),(-r*0.8,my+r*0.3)]
+                pygame.draw.polygon(self.screen, (200,60,20), [rot_p(px,py) for px,py in m_pts])
+                if moving:
+                    pygame.draw.line(self.screen, (255,150,0), rot_p(-r*1.2,my), rot_p(-r*2.2,my), 4)
 
     def _draw_entity_at(self, e: Entity, sx: int, sy: int, draw_r: int = 0):
         r = draw_r if draw_r > 0 else int(e.radius)
@@ -636,7 +689,7 @@ class WaterGame:
                 "shotgun":     "shotgun",
             }
             wt = _wt_map.get(type(self.player_weapon).__name__.lower(), "pistol") if self.player_weapon else "pistol"
-            PlayerVisual.draw(self.screen, sx, sy, angle, wt, radius=int(r * 52.0 / 14.0))
+            PlayerVisual.draw(self.screen, sx, sy, angle, wt, radius=r)
             bar_w = max(r * 2, 20);  bar_h = 5
             bx = sx - bar_w // 2;  by = sy - r - 12
             frac = e.hp / e.max_hp;  fill_w = max(0, int(bar_w * frac))

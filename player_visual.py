@@ -1,184 +1,144 @@
 import pygame
 import math
 
+
 class PlayerVisual:
     @staticmethod
-    def draw(screen, x, y, angle, weapon_type="pistol", radius: int = 18):
-        """Draws the base boat hull and layers the equipped weapon on top.
+    def draw(screen, x, y, angle, weapon_type="pistol", radius: int = 20):
+        scale = float(radius) / 20.0
 
-        Backwards-compatible API: callers pass `radius` (visual radius in px).
-        Internal geometry is scaled relative to a canonical hull radius (~52).
-        """
-        # compute an overall scale based on requested radius
-        scale = float(radius) / 52.0 if radius > 0 else 0.35
-
-        # 1. Draw the base hull (The Boat)
-        PlayerVisual._draw_base_hull(screen, x, y, angle, scale)
-
-        # 2. Draw the specific weapon turret on top (Mapping menu designs to top-down perspective)
-        w_type = (weapon_type or "pistol").lower()
-
-        if w_type == "pistol":
-            PlayerVisual._draw_pistol_turret(screen, x, y, angle, scale)
-        elif w_type in ["machine_gun", "machine gun", "machinegun"]:
-            PlayerVisual._draw_machine_gun_turret(screen, x, y, angle, scale)
-        elif w_type == "sniper":
-            PlayerVisual._draw_sniper_turret(screen, x, y, angle, scale)
-        elif w_type == "shotgun":
-            PlayerVisual._draw_shotgun_turret(screen, x, y, angle, scale)
-        elif w_type in ["rocket_launcher", "bazooka", "rocketlauncher"]:
-            PlayerVisual._draw_bazooka_turret(screen, x, y, angle, scale)
-        else:
-            PlayerVisual._draw_pistol_turret(screen, x, y, angle, scale)
-
-    @staticmethod
-    def _transform(points, x, y, angle, scale=1.0):
-        """Helper to scale, rotate, and translate geometry points."""
-        scaled_pts = []
-        # Offset angle by 90 degrees (pi/2) so 0 radians faces "up" naturally in vector space
-        draw_angle = angle + math.pi / 2 
-        for px, py in points:
+        def rot_p(px, py):
             spx, spy = px * scale, py * scale
-            rx = spx * math.cos(draw_angle) - spy * math.sin(draw_angle)
-            ry = spx * math.sin(draw_angle) + spy * math.cos(draw_angle)
-            scaled_pts.append((int(x + rx), int(y + ry)))
-        return scaled_pts
+            rx = spx * math.cos(angle) - spy * math.sin(angle)
+            ry = spx * math.sin(angle) + spy * math.cos(angle)
+            return (x + rx, y + ry)
 
-    @staticmethod
-    def _draw_polygon_safe(screen, color, points):
-        """Helper to safely draw polygons across different Pygame versions."""
-        try:
-            pygame.draw.polygon(screen, color, points)
-        except TypeError:
-            pygame.draw.polygon(screen, color[:3], points)
+        hull_points = [(20, 0), (-15, 12), (-10, 0), (-15, -12)]
+        rotated_hull = [rot_p(px, py) for px, py in hull_points]
+        pygame.draw.polygon(screen, (50, 150, 255), rotated_hull)
+        pygame.draw.polygon(screen, (20, 100, 200), rotated_hull, 2)
 
-    @staticmethod
-    def _rect_to_poly(dx, dy, w, h, pivot_dx, pivot_dy):
-        """Maps a 2D side-profile rect from the menu to a top-down rotatable polygon."""
-        x_old = dx - pivot_dx
-        y_old = dy - pivot_dy
-        return [
-            (y_old, -x_old),                  # top-left
-            (y_old, -(x_old + w)),            # top-right
-            (y_old + h, -(x_old + w)),        # bottom-right
-            (y_old + h, -x_old)               # bottom-left
-        ]
+        cabin_points = [(5, -6), (5, 6), (-8, 6), (-8, -6)]
+        rotated_cabin = [rot_p(px, py) for px, py in cabin_points]
+        pygame.draw.polygon(screen, (100, 110, 120), rotated_cabin)
+        pygame.draw.polygon(screen, (60, 70, 80), rotated_cabin, 2)
 
-    @staticmethod
-    def _draw_menu_rect(screen, color, dx, dy, w, h, x, y, angle, pivot_dx, pivot_dy, scale):
-        """Converts and draws a menu rectangle onto the boat turret."""
-        pts = PlayerVisual._rect_to_poly(dx, dy, w, h, pivot_dx, pivot_dy)
-        PlayerVisual._draw_polygon_safe(screen, color, PlayerVisual._transform(pts, x, y, angle, scale))
-
-    @staticmethod
-    def _draw_base_hull(screen, x, y, angle, scale):
-        """Draws the geometric boat hull with accent ring and engine nozzle."""
-        hull_pts   = [(0,-18),(12,-6),(12,10),(6,16),(-6,16),(-12,10),(-12,-6)]
-        accent_pts = [(0,-12),(8,-4),(8,6),(4,10),(-4,10),(-8,6),(-8,-4)]
-        engine_pts = [(-4,16),(4,16),(2,20),(-2,20)]
-
-        # Slightly larger outline for depth
-        outline_pts = [(int(px*1.1), int(py*1.1)) for px, py in hull_pts]
-        PlayerVisual._draw_polygon_safe(screen, (15, 25, 30),
-                                        PlayerVisual._transform(outline_pts, x, y, angle, scale))
-        PlayerVisual._draw_polygon_safe(screen, (35, 45, 50),
-                                        PlayerVisual._transform(hull_pts, x, y, angle, scale))
-        pygame.draw.lines(screen, (0, 235, 195), True,
-                          PlayerVisual._transform(accent_pts, x, y, angle, scale), 2)
-        PlayerVisual._draw_polygon_safe(screen, (0, 150, 255),
-                                        PlayerVisual._transform(engine_pts, x, y, angle, scale))
-
-    # =========================================================================
-    # WEAPON DESIGNS (Imported dynamically from weapons_menu.py coordinates)
-    # =========================================================================
-
-    @staticmethod
-    def _draw_pistol_turret(screen, x, y, angle, scale):
-        p_dx, p_dy = -8, -76  # p_dy = vertical midpoint of sprite (-105..-46)
-        weapon_scale = scale * 0.375
-        draw = lambda color, dx, dy, w, h: PlayerVisual._draw_menu_rect(screen, color, dx, dy, w, h, x, y, angle, p_dx, p_dy, weapon_scale)
-
-        draw((70, 70, 75), -40, -105, 50, 25)      # Slide Back
-        draw((100, 100, 105), 10, -105, 35, 20)    # Slide Front
-        draw((160, 170, 180), 45, -105, 4, 20)     # Muzzle
-        draw((40, 40, 45), -40, -80, 15, 30)       # Grip
-        for i in range(3):
-            draw((80, 90, 100), -38, -76 + (i * 8), 11, 4) # Grip Details
-        draw((30, 30, 35), -25, -80, 12, 12)       # Trigger Guard
-        draw((220, 50, 50), -21, -77, 3, 6)        # Trigger
-        draw((130, 130, 135), 18, -102, 5, 2)      # Slide Detail 1
-        draw((130, 130, 135), 30, -102, 5, 2)      # Slide Detail 2
-        draw((200, 210, 220), -34, -50, 4, 4)      # Ring (Square representation)
-
-    @staticmethod
-    def _draw_machine_gun_turret(screen, x, y, angle, scale):
-        p_dx, p_dy = -12, -76  # p_dy = vertical midpoint of sprite (-108..-43)
-        weapon_scale = scale * 0.375
-        draw = lambda color, dx, dy, w, h: PlayerVisual._draw_menu_rect(screen, color, dx, dy, w, h, x, y, angle, p_dx, p_dy, weapon_scale)
-
-        draw((50, 50, 55), -80, -100, 20, 25)      # Rear Stock
-        draw((30, 30, 35), -68, -108, 8, 10)       # Iron Sight
-        draw((55, 75, 95), -60, -105, 60, 45)      # Main Receiver
-        draw((75, 95, 115), -60, -105, 50, 8)      # Receiver Shine
-        draw((120, 135, 145), 0, -92, 80, 16)      # Perforated Barrel
-        draw((150, 165, 175), 75, -95, 10, 22)     # Muzzle Tip
-        for i in range(4):
-            draw((40, 55, 65), 10 + (i * 15), -88, 6, 8) # Cooling Holes
-        draw((45, 65, 85), -35, -60, 12, 12)       # Vertical Handle
-        draw((30, 30, 30), -55, -48, 50, 5)        # Flat Base Stand
-
-    @staticmethod
-    def _draw_sniper_turret(screen, x, y, angle, scale):
-        p_dx, p_dy = -10, -83  # p_dy = vertical midpoint of sprite (-118..-47)
-        weapon_scale = scale * 0.375
-        draw = lambda color, dx, dy, w, h: PlayerVisual._draw_menu_rect(screen, color, dx, dy, w, h, x, y, angle, p_dx, p_dy, weapon_scale)
-
-        draw((210, 105, 30), -95, -95, 35, 20)     # Stock
-        draw((150, 75, 0), -95, -80, 10, 20)       # Butt Pad
-        draw((255, 215, 0), -100, -90, 4, 15)      # Yellow Wire/Detail
-        draw((205, 127, 50), -60, -100, 45, 38)    # Main Receiver
-        draw((40, 40, 45), -55, -75, 12, 12)       # Trigger Grip
-        draw((45, 45, 50), -55, -112, 40, 12)      # Scope Body
-        draw((100, 100, 110), -40, -118, 5, 6)     # Scope Dial
-        draw((140, 150, 160), -15, -93, 110, 10)   # Precision Barrel
-        draw((100, 110, 120), 90, -98, 8, 20)      # Muzzle Brake 1
-        draw((60, 60, 65), 98, -93, 6, 10)         # Muzzle Brake 2
-        draw((55, 70, 90), -30, -62, 12, 12)       # Stand Neck
-        draw((40, 50, 65), -50, -52, 50, 5)        # Stand Base
-
-    @staticmethod
-    def _draw_bazooka_turret(screen, x, y, angle, scale):
-        p_dx, p_dy = -6, -76  # p_dy = vertical midpoint of sprite (-112..-39)
-        weapon_scale = scale * 0.375
-        draw = lambda color, dx, dy, w, h: PlayerVisual._draw_menu_rect(screen, color, dx, dy, w, h, x, y, angle, p_dx, p_dy, weapon_scale)
-
-        draw((100, 115, 130), -85, -95, 170, 30)   # Main Launch Tube
-        draw((60, 75, 90), -95, -100, 15, 40)      # Tube End Cap 1
-        draw((60, 75, 90), 75, -100, 15, 40)       # Tube End Cap 2
-        draw((200, 205, 210), -25, -110, 20, 20)   # Round Gauge Base
-        draw((200, 50, 50), -16, -108, 2, 8)       # Gauge Needle
-        draw((30, 30, 35), 5, -112, 10, 18)        # Periscope Sight
-        draw((0, 200, 255), 12, -110, 4, 4)        # Blue Lens
-        draw((150, 155, 160), 50, -90, 25, 20)     # Rear Mechanism
-        draw((200, 50, 50), 70, -83, 4, 6)         # Red Indicator
-        draw((55, 75, 95), -45, -65, 10, 20)       # Front Leg
-        draw((55, 75, 95), 5, -65, 10, 20)         # Back Leg
-        draw((30, 30, 35), -55, -45, 80, 6)        # Base Plate
-
-    @staticmethod
-    def _draw_shotgun_turret(screen, x, y, angle, scale):
-        p_dx, p_dy = -12, -72  # p_dy = vertical midpoint of sprite (-100..-44)
-        weapon_scale = scale * 0.375
-        draw = lambda color, dx, dy, w, h: PlayerVisual._draw_menu_rect(screen, color, dx, dy, w, h, x, y, angle, p_dx, p_dy, weapon_scale)
-
-        draw((139, 69, 19), -85, -95, 30, 25)      # Wooden Stock
-        draw((100, 50, 15), -85, -85, 15, 20)      # Stock Butt
-        draw((65, 65, 70), -55, -100, 45, 35)      # Heavy Receiver
-        draw((45, 45, 50), -55, -85, 45, 4)        # Receiver Line
-        draw((100, 100, 105), -10, -95, 95, 16)    # Main Top Barrel
-        draw((140, 140, 145), -10, -95, 95, 4)     # Barrel Shine
-        draw((75, 75, 80), -10, -79, 80, 8)        # Bottom Tube
-        for i in range(3):
-            draw((180, 180, 185), 5 + (i * 12), -100, 6, 3) # Cooling Vents
-        draw((40, 40, 40), -40, -65, 10, 15)       # Vertical Foregrip Neck
-        draw((30, 30, 30), -50, -50, 30, 6)        # Foregrip Base
+        wt = (weapon_type or "pistol").lower()
+        
+        # Position weapon at the front of the boat
+        weapon_x, weapon_y = rot_p(25, 0)
+        weapon_scale = scale * 0.5  # Smaller scale for weapon
+        
+        def weapon_rot_p(px, py):
+            spx, spy = px * weapon_scale, py * weapon_scale
+            rx = spx * math.cos(angle) - spy * math.sin(angle)
+            ry = spx * math.sin(angle) + spy * math.cos(angle)
+            return (weapon_x + rx, weapon_y + ry)
+        
+        if wt == "pistol":
+            # Scaled down pistol design
+            wx, wy = weapon_rot_p(-20, -2.5)
+            pygame.draw.rect(screen, (70, 70, 75),      (wx, wy, 25 * weapon_scale, 12.5 * weapon_scale))
+            wx, wy = weapon_rot_p(5, -2.5)
+            pygame.draw.rect(screen, (100, 100, 105),   (wx, wy, 17.5 * weapon_scale, 10 * weapon_scale))
+            wx, wy = weapon_rot_p(22.5, -2.5)
+            pygame.draw.rect(screen, (160, 170, 180),   (wx, wy, 2 * weapon_scale, 10 * weapon_scale))
+            wx, wy = weapon_rot_p(-20, 10)
+            pygame.draw.rect(screen, (40, 40, 45),      (wx, wy, 7.5 * weapon_scale, 15 * weapon_scale))
+            for i in range(3):
+                wx, wy = weapon_rot_p(-19, 13.5 + i * 4)
+                pygame.draw.rect(screen, (80, 90, 100), (wx, wy, 5.5 * weapon_scale, 2 * weapon_scale))
+            wx, wy = weapon_rot_p(-12.5, 10)
+            pygame.draw.rect(screen, (30, 30, 35),      (wx, wy, 6 * weapon_scale, 6 * weapon_scale))
+            wx, wy = weapon_rot_p(-10.5, 12.5)
+            pygame.draw.rect(screen, (220, 50, 50),     (wx, wy, 1.5 * weapon_scale, 3 * weapon_scale))
+            wx, wy = weapon_rot_p(9, -1)
+            pygame.draw.rect(screen, (130, 130, 135),   (wx, wy, 2.5 * weapon_scale, 1 * weapon_scale))
+            wx, wy = weapon_rot_p(15, -1)
+            pygame.draw.rect(screen, (130, 130, 135),   (wx, wy, 2.5 * weapon_scale, 1 * weapon_scale))
+            wx, wy = weapon_rot_p(-16, 26)
+            pygame.draw.circle(screen, (200, 210, 220), (int(wx), int(wy)), int(2 * weapon_scale), int(1 * weapon_scale))
+        
+        elif wt == "machine_gun":
+            wx, wy = weapon_rot_p(-40, -2.5)
+            pygame.draw.rect(screen, (50, 50, 55),      (wx, wy, 10 * weapon_scale, 12.5 * weapon_scale), border_radius=int(1 * weapon_scale))
+            wx, wy = weapon_rot_p(-34, -6)
+            pygame.draw.rect(screen, (30, 30, 35),      (wx, wy, 4 * weapon_scale, 5 * weapon_scale))
+            wx, wy = weapon_rot_p(-30, -2.5)
+            pygame.draw.rect(screen, (55, 75, 95),      (wx, wy, 30 * weapon_scale, 22.5 * weapon_scale), border_radius=int(1.5 * weapon_scale))
+            wx, wy = weapon_rot_p(-30, -2.5)
+            pygame.draw.rect(screen, (75, 95, 115),     (wx, wy, 25 * weapon_scale, 4 * weapon_scale))
+            wx, wy = weapon_rot_p(0, 2.5)
+            pygame.draw.rect(screen, (120, 135, 145),   (wx, wy, 40 * weapon_scale, 8 * weapon_scale))
+            wx, wy = weapon_rot_p(37.5, 1.25)
+            pygame.draw.rect(screen, (150, 165, 175),   (wx, wy, 5 * weapon_scale, 11 * weapon_scale), border_radius=int(0.5 * weapon_scale))
+            for i in range(4):
+                wx, wy = weapon_rot_p(5 + i * 7.5, 4)
+                pygame.draw.rect(screen, (40, 55, 65),  (wx, wy, 3 * weapon_scale, 4 * weapon_scale))
+            wx, wy = weapon_rot_p(-17.5, 17.5)
+            pygame.draw.rect(screen, (45, 65, 85),      (wx, wy, 6 * weapon_scale, 6 * weapon_scale))
+            wx, wy = weapon_rot_p(-27.5, 26)
+            pygame.draw.rect(screen, (30, 30, 30),      (wx, wy, 25 * weapon_scale, 2.5 * weapon_scale), border_radius=int(1 * weapon_scale))
+        
+        elif wt == "sniper":
+            wx, wy = weapon_rot_p(-47.5, 1.25)
+            pygame.draw.rect(screen, (210, 105, 30),    (wx, wy, 17.5 * weapon_scale, 10 * weapon_scale), border_radius=int(1 * weapon_scale))
+            wx, wy = weapon_rot_p(-47.5, 11.25)
+            pygame.draw.rect(screen, (150, 75, 0),      (wx, wy, 5 * weapon_scale, 10 * weapon_scale), border_radius=int(1 * weapon_scale))
+            wx, wy = weapon_rot_p(-50, 0)
+            pygame.draw.arc(screen,  (255, 215, 0),     (wx, wy, 7.5 * weapon_scale, 15 * weapon_scale), 3.14, 4.71, int(1 * weapon_scale))
+            wx, wy = weapon_rot_p(-30, -2.5)
+            pygame.draw.rect(screen, (205, 127, 50),    (wx, wy, 22.5 * weapon_scale, 19 * weapon_scale), border_radius=int(1 * weapon_scale))
+            wx, wy = weapon_rot_p(-27.5, 12.5)
+            pygame.draw.rect(screen, (40, 40, 45),      (wx, wy, 6 * weapon_scale, 6 * weapon_scale))
+            wx, wy = weapon_rot_p(-27.5, -6)
+            pygame.draw.rect(screen, (45, 45, 50),      (wx, wy, 20 * weapon_scale, 6 * weapon_scale), border_radius=int(0.5 * weapon_scale))
+            wx, wy = weapon_rot_p(-20, -8)
+            pygame.draw.rect(screen, (100, 100, 110),   (wx, wy, 2.5 * weapon_scale, 3 * weapon_scale))
+            wx, wy = weapon_rot_p(-7.5, 2.5)
+            pygame.draw.rect(screen, (140, 150, 160),   (wx, wy, 55 * weapon_scale, 5 * weapon_scale))
+            wx, wy = weapon_rot_p(45, -1)
+            pygame.draw.rect(screen, (100, 110, 120),   (wx, wy, 4 * weapon_scale, 10 * weapon_scale))
+            wx, wy = weapon_rot_p(49, 2.5)
+            pygame.draw.rect(screen, (60, 60, 65),      (wx, wy, 3 * weapon_scale, 5 * weapon_scale))
+            wx, wy = weapon_rot_p(-15, 17.5)
+            pygame.draw.rect(screen, (55, 70, 90),      (wx, wy, 6 * weapon_scale, 6 * weapon_scale))
+            wx, wy = weapon_rot_p(-25, 26)
+            pygame.draw.rect(screen, (40, 50, 65),      (wx, wy, 25 * weapon_scale, 2.5 * weapon_scale), border_radius=int(1 * weapon_scale))
+        
+        elif wt == "bazooka":
+            pygame.draw.rect(screen, (100, 115, 130),   weapon_rot_p(-42.5, 1.25), (85 * weapon_scale, 15 * weapon_scale), border_radius=int(1 * weapon_scale))
+            pygame.draw.rect(screen, (60, 75, 90),      weapon_rot_p(-47.5, -2.5), (7.5 * weapon_scale, 20 * weapon_scale), border_radius=int(0.5 * weapon_scale))
+            pygame.draw.rect(screen, (60, 75, 90),      weapon_rot_p(37.5, -2.5), (7.5 * weapon_scale, 20 * weapon_scale), border_radius=int(0.5 * weapon_scale))
+            pygame.draw.circle(screen, (200, 205, 210), weapon_rot_p(-7.5, -2.5), 5 * weapon_scale)
+            pygame.draw.line(screen,  (200, 50, 50),    weapon_rot_p(-7.5, -2.5), weapon_rot_p(-7.5, -7.5), int(1 * weapon_scale))
+            pygame.draw.rect(screen, (30, 30, 35),      weapon_rot_p(2.5, -6), (5 * weapon_scale, 9 * weapon_scale))
+            pygame.draw.rect(screen, (0, 200, 255),     weapon_rot_p(6, -5.5), (2 * weapon_scale, 2 * weapon_scale))
+            pygame.draw.rect(screen, (150, 155, 160),   weapon_rot_p(25, 2.5), (12.5 * weapon_scale, 10 * weapon_scale))
+            pygame.draw.rect(screen, (200, 50, 50),     weapon_rot_p(35, 4.25), (2 * weapon_scale, 3 * weapon_scale))
+            pygame.draw.rect(screen, (55, 75, 95),      weapon_rot_p(-22.5, 17.5), (5 * weapon_scale, 10 * weapon_scale))
+            pygame.draw.rect(screen, (55, 75, 95),      weapon_rot_p(2.5, 17.5), (5 * weapon_scale, 10 * weapon_scale))
+            pygame.draw.rect(screen, (30, 30, 35),      weapon_rot_p(-27.5, 27.5), (40 * weapon_scale, 3 * weapon_scale), border_radius=int(1 * weapon_scale))
+        
+        elif wt == "shotgun":
+            wx, wy = weapon_rot_p(-42.5, 1.25)
+            pygame.draw.rect(screen, (139, 69, 19),     (wx, wy, 15 * weapon_scale, 12.5 * weapon_scale), border_radius=int(1 * weapon_scale))
+            wx, wy = weapon_rot_p(-42.5, 13.75)
+            pygame.draw.rect(screen, (100, 50, 15),     (wx, wy, 7.5 * weapon_scale, 10 * weapon_scale), border_radius=int(1 * weapon_scale))
+            wx, wy = weapon_rot_p(-27.5, -2.5)
+            pygame.draw.rect(screen, (65, 65, 70),      (wx, wy, 22.5 * weapon_scale, 17.5 * weapon_scale), border_radius=int(1 * weapon_scale))
+            wx, wy = weapon_rot_p(-27.5, 13.75)
+            pygame.draw.rect(screen, (45, 45, 50),      (wx, wy, 22.5 * weapon_scale, 2 * weapon_scale))
+            wx, wy = weapon_rot_p(-5, 1.25)
+            pygame.draw.rect(screen, (100, 100, 105),   (wx, wy, 47.5 * weapon_scale, 8 * weapon_scale))
+            wx, wy = weapon_rot_p(-5, 1.25)
+            pygame.draw.rect(screen, (140, 140, 145),   (wx, wy, 47.5 * weapon_scale, 2 * weapon_scale))
+            wx, wy = weapon_rot_p(-5, 11.75)
+            pygame.draw.rect(screen, (75, 75, 80),      (wx, wy, 40 * weapon_scale, 4 * weapon_scale))
+            for i in range(3):
+                wx, wy = weapon_rot_p(2.5 + i * 6, -1.25)
+                pygame.draw.rect(screen, (180, 180, 185), (wx, wy, 3 * weapon_scale, 1.5 * weapon_scale))
+            wx, wy = weapon_rot_p(-20, 17.5)
+            pygame.draw.rect(screen, (40, 40, 40),      (wx, wy, 5 * weapon_scale, 7.5 * weapon_scale))
+            wx, wy = weapon_rot_p(-25, 27.5)
+            pygame.draw.rect(screen, (30, 30, 30),      (wx, wy, 15 * weapon_scale, 3 * weapon_scale), border_radius=int(1 * weapon_scale))

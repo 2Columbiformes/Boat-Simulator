@@ -3,7 +3,7 @@ import numpy as np
 # ── Window & grid ──────────────────────────────────────────────────────────────
 WIDTH,  HEIGHT  = 800, 600          # screen / viewport size
 WORLD_W, WORLD_H = WIDTH, HEIGHT    # world matches screen (no scrolling)
-GRID_W, GRID_H  = 100, 75
+GRID_W, GRID_H  = 100*2, 75*2
 CELL_W  = WORLD_W // GRID_W         # 8 px per grid cell
 CELL_H  = WORLD_H // GRID_H         # 8 px per grid cell
 FPS     = 60
