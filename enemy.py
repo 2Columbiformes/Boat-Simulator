@@ -48,12 +48,15 @@ class Enemy:
         dist = _torus_dist(self.entity.x, self.entity.y, tx, ty)
         angle_to = _torus_angle(self.entity.x, self.entity.y, tx, ty)
 
-        if   self.ai_type == "drift":     return self._ai_drift(dt, tx, ty, dist, angle_to)
-        elif self.ai_type == "chase":     return self._ai_chase(dt, tx, ty, dist, angle_to)
-        elif self.ai_type == "snipe":     return self._ai_snipe(dt, tx, ty, dist, angle_to)
-        elif self.ai_type == "artillery": return self._ai_artillery(dt, tx, ty, dist, angle_to)
-        elif self.ai_type == "patrol":    return self._ai_patrol(dt, tx, ty, dist, angle_to)
-        return []
+        if   self.ai_type == "drift":     projs = self._ai_drift(dt, tx, ty, dist, angle_to)
+        elif self.ai_type == "chase":     projs = self._ai_chase(dt, tx, ty, dist, angle_to)
+        elif self.ai_type == "snipe":     projs = self._ai_snipe(dt, tx, ty, dist, angle_to)
+        elif self.ai_type == "artillery": projs = self._ai_artillery(dt, tx, ty, dist, angle_to)
+        elif self.ai_type == "patrol":    projs = self._ai_patrol(dt, tx, ty, dist, angle_to)
+        else: projs = []
+        for p in projs:
+            p.hits.add(id(self.entity))
+        return projs
 
     # ── AI implementations ────────────────────────────────────────────────────
 
@@ -67,7 +70,7 @@ class Enemy:
         spd = 120.0
         e.vx += math.cos(self._angle) * spd * dt
         e.vy += math.sin(self._angle) * spd * dt
-        if dist < 1200 and self.weapon.ready:
+        if dist < 300 and self.weapon.ready:
             return self.weapon.fire(e.x, e.y, angle_to)
         return []
 
@@ -82,13 +85,13 @@ class Enemy:
         return []
 
     def _ai_snipe(self, dt, tx, ty, dist, angle_to):
-        """Keeps 1400–2200 px from target; fires sniper when aimed within ±5°."""
+        """Keeps 350–550 px from target; fires sniper when aimed within ±5°."""
         e = self.entity
-        if dist < 1400:
+        if dist < 350:
             # back away
             e.vx += math.cos(angle_to + math.pi) * 220.0 * dt
             e.vy += math.sin(angle_to + math.pi) * 220.0 * dt
-        elif dist > 2200:
+        elif dist > 550:
             e.vx += math.cos(angle_to) * 180.0 * dt
             e.vy += math.sin(angle_to) * 180.0 * dt
         # face the target
@@ -100,9 +103,9 @@ class Enemy:
         return []
 
     def _ai_artillery(self, dt, tx, ty, dist, angle_to):
-        """Stays 1600+ px away; lobs bazookas leading the target."""
+        """Stays 400+ px away; lobs bazookas leading the target."""
         e = self.entity
-        if dist < 1600:
+        if dist < 400:
             e.vx += math.cos(angle_to + math.pi) * 200.0 * dt
             e.vy += math.sin(angle_to + math.pi) * 200.0 * dt
         if self.weapon.ready:
@@ -114,14 +117,14 @@ class Enemy:
         e   = self.entity
         # steer toward patrol centre with an orbital offset
         self._angle += 0.6 * dt           # orbit angular velocity
-        orbit_r = 320.0
+        orbit_r = 80.0
         goal_x  = self.patrol_cx + math.cos(self._angle) * orbit_r
         goal_y  = self.patrol_cy + math.sin(self._angle) * orbit_r
         dx, dy  = _torus_delta(e.x, e.y, goal_x, goal_y)
         spd     = 280.0
         e.vx += dx / max(math.hypot(dx, dy), 1) * spd * dt
         e.vy += dy / max(math.hypot(dx, dy), 1) * spd * dt
-        if dist < 720 and self.weapon.ready:
+        if dist < 180 and self.weapon.ready:
             return self.weapon.fire(e.x, e.y, angle_to)
         return []
 
@@ -186,12 +189,13 @@ class Boss(Enemy):
         if target is not None and target.alive:
             angle_to = _torus_angle(self.entity.x, self.entity.y, target.x, target.y)
             if self._sniper.ready:
-                projs += self._sniper.fire(self.entity.x, self.entity.y, angle_to)
+                extra = self._sniper.fire(self.entity.x, self.entity.y, angle_to)
+                for p in extra: p.hits.add(id(self.entity))
+                projs += extra
             if self._bazooka.ready:
-                projs += self._bazooka.fire(self.entity.x, self.entity.y, angle_to)
-        # Prevent self-damage from own projectiles
-        for p in projs:
-            p.hits.add(id(self.entity))
+                extra = self._bazooka.fire(self.entity.x, self.entity.y, angle_to)
+                for p in extra: p.hits.add(id(self.entity))
+                projs += extra
         return projs
 
 

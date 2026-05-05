@@ -16,171 +16,223 @@ class LevelDef:
     current_force: float = 80.0   # px/s² leftward (applied to player only)
     scroll_speed:  float = 4.0    # grid cells/s scrolled left visually
     player_weapon: object = None  # Weapon instance given to the player
-    enemy_budget:  int   = 0      # target live-enemy count (0 = no auto-respawn)
-    spawn_pool:    object = None  # list[str] of types to randomly spawn
+    enemy_budget: int = 0
+    spawn_pool: list = None
+    topology:      str  = "torus"  # "torus" = wrap edges; "bounded" = wall bounce
 
 
-# All coordinates are in world space (3200 × 2400), scaled 4× from the old 800×600 screen.
+# All coordinates are in world space (800 × 600 — world matches screen).
 
 # ── Level 1: Open Water ────────────────────────────────────────────────────────
 level1 = LevelDef(
     name          = "Open Water",
-    player_start  = (320, 1200),
-    flag_pos      = (2800, 1200),
+    player_start  = (80, 300),
+    flag_pos      = (700, 300),
     obstacles     = [
-        {"x": 1400, "y": 1000, "radius": 80},
-        {"x": 1400, "y": 1480, "radius": 80},
+        {"x": 350, "y": 250, "radius": 20},
+        {"x": 350, "y": 370, "radius": 20},
     ],
     enemies       = [
-        {"type": "drift",  "x": 2000, "y":  800},
-        {"type": "patrol", "x": 2000, "y": 1680, "cx": 2000, "cy": 1600},
+        {"type": "drift",  "x": 500, "y": 200},
+        {"type": "patrol", "x": 500, "y": 420, "cx": 500, "cy": 400},
     ],
     splashes      = [
-        (GRID_W // 2, GRID_H // 2, 2.0, 8),
+        (GRID_W // 2, GRID_H // 2, 0.02, 4),
     ],
     player_weapon = Pistol(),
-    enemy_budget  = 10,
-    spawn_pool    = ["drift", "patrol"],
 )
 
 # ── Level 2: The Gauntlet ──────────────────────────────────────────────────────
 level2 = LevelDef(
     name          = "The Gauntlet",
-    player_start  = (320, 1200),
-    flag_pos      = (2880, 1200),
+    player_start  = (80, 300),
+    flag_pos      = (720, 300),
     obstacles     = [
-        # Wall 1 at x=1120 — blocks top and bottom, gap in the middle
-        {"x": 1120, "y":  400, "radius": 72},
-        {"x": 1120, "y":  760, "radius": 72},
-        {"x": 1120, "y": 1640, "radius": 72},
-        {"x": 1120, "y": 2000, "radius": 72},
-        # Wall 2 at x=1920 — offset gaps
-        {"x": 1920, "y":  320, "radius": 72},
-        {"x": 1920, "y":  800, "radius": 72},
-        {"x": 1920, "y": 1440, "radius": 72},
-        {"x": 1920, "y": 1920, "radius": 72},
+        # Wall 1 at x=280 — blocks top and bottom, gap in the middle
+        {"x": 280, "y": 100, "radius": 18},
+        {"x": 280, "y": 190, "radius": 18},
+        {"x": 280, "y": 410, "radius": 18},
+        {"x": 280, "y": 500, "radius": 18},
+        # Wall 2 at x=480 — offset gaps
+        {"x": 480, "y":  80, "radius": 18},
+        {"x": 480, "y": 200, "radius": 18},
+        {"x": 480, "y": 360, "radius": 18},
+        {"x": 480, "y": 480, "radius": 18},
     ],
     enemies       = [
-        {"type": "chase", "x":  640, "y":  520},
-        {"type": "chase", "x":  640, "y": 1880},
-        {"type": "snipe", "x": 2400, "y": 1200},
+        {"type": "chase", "x": 160, "y": 130},
+        {"type": "chase", "x": 160, "y": 470},
+        {"type": "snipe", "x": 600, "y": 300},
+        {"type": "chase", "x": 160, "y": 130},
+        {"type": "chase", "x": 160, "y": 470},
+        {"type": "snipe", "x": 600, "y": 300},
+        {"type": "chase", "x": 160, "y": 130},
+        {"type": "chase", "x": 160, "y": 470},
+        {"type": "snipe", "x": 600, "y": 300},
     ],
     splashes      = [
-        (GRID_W // 3,     GRID_H // 3,     1.5, 6),
-        (GRID_W * 2 // 3, GRID_H * 2 // 3, 1.5, 6),
+        (GRID_W // 3,     GRID_H // 3,     0.015, 3),
+        (GRID_W * 2 // 3, GRID_H * 2 // 3, 0.015, 3),
     ],
     player_weapon = MachineGun(),
-    enemy_budget  = 14,
-    spawn_pool    = ["drift", "chase", "patrol"],
 )
 
 # ── Level 3: Crossfire ─────────────────────────────────────────────────────────
 level3 = LevelDef(
     name          = "Crossfire",
-    player_start  = (320, 2000),
-    flag_pos      = (2800,  400),
+    player_start  = (80, 500),
+    flag_pos      = (700, 100),
     obstacles     = [
-        {"x": 1520, "y": 1080, "radius": 100},
-        {"x": 1720, "y": 1320, "radius": 100},
-        {"x":  800, "y":  800, "radius":  72},
-        {"x": 2400, "y": 1600, "radius":  72},
+        {"x": 380, "y": 270, "radius": 25},
+        {"x": 430, "y": 330, "radius": 25},
+        {"x": 200, "y": 200, "radius": 18},
+        {"x": 600, "y": 400, "radius": 18},
     ],
     enemies       = [
-        {"type": "snipe",     "x": 2800, "y": 2000},
-        {"type": "snipe",     "x":  400, "y":  400},
-        {"type": "artillery", "x": 1600, "y": 1200},
-        {"type": "drift",     "x": 1600, "y":  600},
+        {"type": "snipe",     "x": 700, "y": 500},
+        {"type": "snipe",     "x": 100, "y": 100},
+        {"type": "artillery", "x": 400, "y": 300},
+        {"type": "artillery", "x": 400, "y": 300},
+        {"type": "artillery", "x": 400, "y": 300},
+        {"type": "artillery", "x": 400, "y": 300},
+        {"type": "artillery", "x": 400, "y": 300},
+        {"type": "drift",     "x": 400, "y": 150},
+        {"type": "drift",     "x": 400, "y": 450},
     ],
     splashes      = [
-        (GRID_W // 4, GRID_H // 4, 2.0, 8),
-        (GRID_W * 3 // 4, GRID_H * 3 // 4, 1.5, 6),
+        (GRID_W // 4,     GRID_H // 4,     0.02, 4),
+        (GRID_W * 3 // 4, GRID_H * 3 // 4, 0.015, 3),
     ],
     player_weapon = Sniper(),
-    enemy_budget  = 17,
-    spawn_pool    = ["drift", "chase", "snipe"],
 )
 
-# ── Level 4: The Maze ──────────────────────────────────────────────────────────
+
+# ── Level 4: The Maze (procedural) ─────────────────────────────────────────────
+import random
+
+def _generate_maze(width, height):
+    # Ensure odd dimensions
+    if width % 2 == 0:
+        width += 1
+    if height % 2 == 0:
+        height += 1
+
+    maze = [[1 for _ in range(width)] for _ in range(height)]
+
+    def carve(x, y):
+        directions = [(2,0), (-2,0), (0,2), (0,-2)]
+        random.shuffle(directions)
+
+        for dx, dy in directions:
+            nx, ny = x + dx, y + dy
+
+            if 1 <= nx < width - 1 and 1 <= ny < height - 1:
+                if maze[ny][nx] == 1:
+                    maze[ny][nx] = 0
+                    maze[y + dy//2][x + dx//2] = 0
+                    carve(nx, ny)
+
+    maze[1][1] = 0
+    carve(1, 1)
+
+    # Ensure start and end are open
+    maze[1][1] = 0
+    maze[-2][-2] = 0
+
+    return maze
+
+
+def _maze_to_obstacles(maze, cell_size=50):
+    obstacles = []
+    for r in range(len(maze)):
+        for c in range(len(maze[0])):
+            if maze[r][c] == 1:
+                x = c * cell_size + cell_size // 2
+                y = r * cell_size + cell_size // 2
+
+                obstacles.append({
+                    "x": x,
+                    "y": y,
+                    "radius": int(cell_size * 0.45)
+                })
+    return obstacles
+
+
+def _cell_to_world(r, c, cell_size=50):
+    return (
+        c * cell_size + cell_size // 2,
+        r * cell_size + cell_size // 2
+    )
+
+
+def _get_open_cells(maze):
+    cells = []
+    for r in range(len(maze)):
+        for c in range(len(maze[0])):
+            if maze[r][c] == 0:
+                cells.append((r, c))
+    return cells
+
+
+# Match world (800 x 600): 15×50=750 wide, 11×50=550 tall
+cell_size = 50
+cols = 15  # must be odd
+rows = 11  # must be odd
+
+maze = _generate_maze(cols, rows)
+maze_obstacles = _maze_to_obstacles(maze, cell_size)
+
+# Place enemies only in valid path cells
+open_cells = _get_open_cells(maze)
+enemies = []
+
+for r, c in random.sample(open_cells, min(6, len(open_cells))):
+    x, y = _cell_to_world(r, c, cell_size)
+    enemies.append({
+        "type": random.choice(["chase", "patrol", "drift"]),
+        "x": x,
+        "y": y
+    })
+
+
 level4 = LevelDef(
     name          = "The Maze",
-    player_start  = (240,  240),
-    flag_pos      = (2880, 2080),
-    obstacles     = [
-        # Grid at 400-px spacing, r=60.  (400,400) and (2800,2000) omitted to
-        # keep player start (240,240) and flag approach (2880,2080) clear.
-        {"x":  800, "y":  400, "radius": 60},
-        {"x": 1200, "y":  400, "radius": 60},
-        {"x": 1600, "y":  400, "radius": 60},
-        {"x": 2000, "y":  400, "radius": 60},
-        {"x": 2400, "y":  400, "radius": 60},
-        {"x": 2800, "y":  400, "radius": 60},
-        {"x":  400, "y":  800, "radius": 60},
-        {"x":  800, "y":  800, "radius": 60},
-        {"x": 1200, "y":  800, "radius": 60},
-        {"x": 1600, "y":  800, "radius": 60},
-        {"x": 2000, "y":  800, "radius": 60},
-        {"x": 2400, "y":  800, "radius": 60},
-        {"x": 2800, "y":  800, "radius": 60},
-        {"x":  400, "y": 1200, "radius": 60},
-        {"x":  800, "y": 1200, "radius": 60},
-        {"x": 1200, "y": 1200, "radius": 60},
-        {"x": 1600, "y": 1200, "radius": 60},
-        {"x": 2000, "y": 1200, "radius": 60},
-        {"x": 2400, "y": 1200, "radius": 60},
-        {"x": 2800, "y": 1200, "radius": 60},
-        {"x":  400, "y": 1600, "radius": 60},
-        {"x":  800, "y": 1600, "radius": 60},
-        {"x": 1200, "y": 1600, "radius": 60},
-        {"x": 1600, "y": 1600, "radius": 60},
-        {"x": 2000, "y": 1600, "radius": 60},
-        {"x": 2400, "y": 1600, "radius": 60},
-        {"x": 2800, "y": 1600, "radius": 60},
-        {"x":  400, "y": 2000, "radius": 60},
-        {"x":  800, "y": 2000, "radius": 60},
-        {"x": 1200, "y": 2000, "radius": 60},
-        {"x": 1600, "y": 2000, "radius": 60},
-        {"x": 2000, "y": 2000, "radius": 60},
-        {"x": 2400, "y": 2000, "radius": 60},
-    ],
-    enemies       = [
-        {"type": "chase",     "x": 1200, "y": 1200},
-        {"type": "patrol",    "x": 2400, "y":  800, "cx": 2400, "cy":  800},
-        {"type": "snipe",     "x": 2800, "y": 1600},
-        {"type": "artillery", "x": 1600, "y": 2000},
-        {"type": "drift",     "x": 2200, "y":  400},
-    ],
-    splashes      = [
-        (GRID_W // 4, GRID_H // 4, 2.0, 7),
-        (GRID_W * 3 // 4, GRID_H // 2, 1.8, 7),
-    ],
+    player_start  = (cell_size + 40, cell_size + 40),  # near (1,1)
+    flag_pos      = (
+        (cols - 2) * cell_size,
+        (rows - 2) * cell_size
+    ),
+    obstacles     = maze_obstacles,
+    enemies       = enemies,
+    splashes      = [],
     player_weapon = Shotgun(),
-    enemy_budget  = 20,
-    spawn_pool    = ["drift", "chase", "snipe", "artillery", "patrol"],
 )
 
 # ── Level 5: River of No Return (survival) ─────────────────────────────────────
 level5 = LevelDef(
     name          = "No Return",
-    player_start  = (2600, 1200),
+    player_start  = (650, 300),
     flag_pos      = None,           # win by surviving
     obstacles     = [],
     enemies       = [
-        {"type": "boss",   "x": 1600, "y": 1200},
-        {"type": "drift",  "x": 2000, "y":  600},
-        {"type": "drift",  "x": 2000, "y": 1800},
-        {"type": "patrol", "x": 1200, "y":  800, "cx": 1200, "cy":  800},
-        {"type": "snipe",  "x": 2400, "y":  400},
+        {"type": "chase",  "x": 400, "y": 300},
+        {"type": "chase",  "x": 400, "y": 300},
+        {"type": "chase",  "x": 400, "y": 300},
+        {"type": "chase",  "x": 400, "y": 300},
+        {"type": "chase",  "x": 400, "y": 300},
+        {"type": "chase",  "x": 400, "y": 300},
+        {"type": "chase",  "x": 400, "y": 300},
+        {"type": "patrol", "x": 300, "y": 200, "cx": 300, "cy": 200},
+        {"type": "snipe",  "x": 600, "y": 100},
     ],
     splashes      = [
-        (GRID_W * 3 // 4, GRID_H // 2, 2.5, 10),
+        (GRID_W * 3 // 4, GRID_H // 2, 0.02, 4),
     ],
     survival      = True,
     survival_secs = 120.0,
     current_force = 90.0,
-    scroll_speed  = 5.0,
+    scroll_speed  = 3.0,
     player_weapon = Bazooka(),
-    enemy_budget  = 25,
-    spawn_pool    = ["drift", "chase", "patrol"],
 )
 
 

@@ -23,6 +23,7 @@ class Projectile:
     origin_y:         float = 0.0
     shotgun:          bool  = False
     shotgun_range:    float = 280.0
+    weapon_type:      str   = "standard"
     hits: set = field(default_factory=set, repr=False)  # id(entity) already struck
 
     @property
@@ -73,6 +74,7 @@ class Pistol(Weapon):
         vx, vy = self._vel(1000.0, angle)
         return [Projectile(x=x, y=y, vx=vx, vy=vy,
                            damage=20.0, lifetime=2.5,
+                           weapon_type="pistol",
                            color=(255, 255, 100))]
 
 
@@ -86,6 +88,7 @@ class MachineGun(Weapon):
         vx, vy = self._vel(1120.0, angle, spread=math.radians(18))
         return [Projectile(x=x, y=y, vx=vx, vy=vy,
                            damage=8.0, lifetime=1.8,
+                           weapon_type="machine_gun",
                            color=(255, 180, 50))]
 
 
@@ -100,6 +103,7 @@ class Sniper(Weapon):
         return [Projectile(x=x, y=y, vx=vx, vy=vy,
                            damage=55.0, lifetime=3.0,
                            pierce=True,
+                           weapon_type="sniper",
                            color=(180, 80, 255))]
 
 
@@ -115,8 +119,9 @@ class Bazooka(Weapon):
                            damage=0.0, lifetime=5.0,
                            explodes=True,
                            explosion_radius=320.0,
-                           explosion_damage=60.0,
+                           explosion_damage=600.0,
                            fuse=3.0,
+                           weapon_type="bazooka",
                            color=(255, 100, 30))]
 
 
@@ -141,6 +146,22 @@ class Shotgun(Weapon):
                 damage=self._base_dmg, lifetime=1.2,
                 shotgun=True, shotgun_range=self._range,
                 origin_x=x, origin_y=y,
+                weapon_type="shotgun",
                 color=(255, 140, 60),
             ))
         return projs
+
+
+# ── Weapon type mapping utility ────────────────────────────────────────────────
+
+def get_weapon_type_name(weapon_instance) -> str:
+    """Convert a weapon instance to its display name string for rendering."""
+    weapon_map = {
+        'Pistol':      'pistol',
+        'MachineGun':  'machine_gun',
+        'Sniper':      'sniper',
+        'Bazooka':     'bazooka',
+        'Shotgun':     'shotgun',
+    }
+    class_name = type(weapon_instance).__name__
+    return weapon_map.get(class_name, 'pistol')

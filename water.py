@@ -2,27 +2,34 @@ import numpy as np
 
 # ── Window & grid ──────────────────────────────────────────────────────────────
 WIDTH,  HEIGHT  = 800, 600          # screen / viewport size
-WORLD_W, WORLD_H = 3200, 2400       # physics / simulation world size (~4× screen)
-GRID_W, GRID_H  = 300, 200
-CELL_W  = WORLD_W // GRID_W         # 16 px per grid cell
-CELL_H  = WORLD_H // GRID_H         # 16 px per grid cell
+WORLD_W, WORLD_H = WIDTH, HEIGHT    # world matches screen (no scrolling)
+GRID_W, GRID_H  = 100, 75
+CELL_W  = WORLD_W // GRID_W         # 8 px per grid cell
+CELL_H  = WORLD_H // GRID_H         # 8 px per grid cell
 FPS     = 60
 
 # ── Wave physics ───────────────────────────────────────────────────────────────
-WAVE_SPEED   = 0.5   # CFL: must stay below 1/sqrt(2) ≈ 0.707
-DAMPING      = 0.999
-SPLASH_AMP   = 0.1
-SPLASH_R     = 3
+WAVE_SPEED   = 0.4   # CFL: must stay below 1/sqrt(2) ≈ 0.707
+DAMPING      = 0.99  # faster energy dissipation
+SPLASH_AMP   = 0.005
+SPLASH_R     = 2
+
+# Numerical stabilization
+VISCOSITY    = 0.1   # Laplacian-based diffusion to damp short wavelengths
+# Hard clamp — must stay above any single-frame injection to avoid h vs h_prev divergence
+MAX_H        = 0.05
 
 # ── Entity–water coupling ──────────────────────────────────────────────────────
-WAVE_GRAD_K  = 10.0
-DRAG_K       = 0.005
-DISPLACE_AMP = 0.1
-RIPPLE_AMP   = 0.12
+WAVE_GRAD_K  = 1.0    # wave gradient force on entities (was 0.01)
+DRAG_K       = 0.05   #0.02
+DISPLACE_AMP = 0.0001   # was 0.01 — large values caused constant saturation
+RIPPLE_AMP   = 0.0005   # was 0.012 — scaled down to stay well below MAX_H
 
 # ── Rendering palette ──────────────────────────────────────────────────────────
-COLOR_DEEP    = np.array([10,  30,  90],  dtype=np.float32)
-COLOR_SHALLOW = np.array([50,  140, 220], dtype=np.float32)
+COLOR_DEEP    = np.array([8,   24,  80],  dtype=np.float32)
+COLOR_MID     = np.array([24,  80,  150], dtype=np.float32)
+COLOR_SHALLOW = np.array([60,  170, 230], dtype=np.float32)
+COLOR_FOAM    = np.array([220, 245, 255], dtype=np.float32)
 COLOR_CREST   = np.array([200, 230, 255], dtype=np.float32)
 
 
@@ -46,8 +53,20 @@ class WaterGrid:
         )
 
     def step(self):
-        h_new = 2.0 * self.h - self.h_prev + self.c2 * self._laplacian(self.h)
+        lap = self._laplacian(self.h)
+        h_new = 2.0 * self.h - self.h_prev + self.c2 * lap
+
+        # apply small Laplacian-based viscosity to damp nyquist/short waves
+        if VISCOSITY > 0.0:
+            h_new -= VISCOSITY * lap
+
+        # global damping
         h_new *= DAMPING
+
+        # clamp extreme values to prevent numerical blowup
+        if MAX_H is not None:
+            np.clip(h_new, -MAX_H, MAX_H, out=h_new)
+
         h_new[self.fixed] = 0.0
         self.h_prev = self.h
         self.h      = h_new
@@ -64,6 +83,9 @@ class WaterGrid:
         mask   = dist2 < r2
         self.h[mask] += amplitude * np.exp(-dist2[mask] / (2.0 * sigma2))
         self.h[self.fixed] = 0.0
+        # Keep h in bounds immediately so h_prev never diverges from h
+        if MAX_H is not None:
+            np.clip(self.h, -MAX_H, MAX_H, out=self.h)
 
     def set_obstacle(self, gx: float, gy: float, radius: float):
         gx = gx % self.grid_w
@@ -74,6 +96,14 @@ class WaterGrid:
         self.fixed[dx * dx + dy * dy < radius ** 2] = True
         self.h[self.fixed]      = 0.0
         self.h_prev[self.fixed] = 0.0
+
+    def unset_obstacle(self, gx: float, gy: float, radius: float):
+        gx = gx % self.grid_w
+        gy = gy % self.grid_h
+        ys, xs = np.ogrid[:self.grid_h, :self.grid_w]
+        dx = (xs - gx).astype(np.float32);  dx -= self.grid_w * np.round(dx / self.grid_w)
+        dy = (ys - gy).astype(np.float32);  dy -= self.grid_h * np.round(dy / self.grid_h)
+        self.fixed[dx * dx + dy * dy < radius ** 2] = False
 
     def height_at(self, gx: float, gy: float) -> float:
         x = int(gx % self.grid_w)

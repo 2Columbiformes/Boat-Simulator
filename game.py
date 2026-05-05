@@ -7,11 +7,14 @@ from water import (WaterGrid, WIDTH, HEIGHT, WORLD_W, WORLD_H,
                    GRID_W, GRID_H, CELL_W, CELL_H, FPS,
                    WAVE_GRAD_K, DRAG_K, DISPLACE_AMP, RIPPLE_AMP,
                    SPLASH_AMP, SPLASH_R,
-                   COLOR_DEEP, COLOR_SHALLOW, COLOR_CREST)
+                   COLOR_DEEP, COLOR_MID, COLOR_SHALLOW, COLOR_FOAM, COLOR_CREST)
 from entity import Entity
 from weapon import Projectile
 from enemy import (Enemy,
-                   make_drift, make_chaser, make_sniper, make_artillery, make_patrol)
+                   make_drift, make_chaser, make_sniper, make_artillery, make_patrol,
+                   make_boss)
+from bullet import BulletVisual
+from player_visual import PlayerVisual
 
 _SPAWN_FACTORIES = {
     "drift":     make_drift,
@@ -22,9 +25,9 @@ _SPAWN_FACTORIES = {
 }
 
 # ── Collision constants (kept here as they belong to the game loop) ────────────
-RESTITUTION      = 1.0
+RESTITUTION      = 0.35
 COLLISION_DMG_K  = 0.25
-COLLISION_SPLASH = 1.0
+COLLISION_SPLASH = 0.001
 
 
 class WaterGame:
@@ -43,7 +46,8 @@ class WaterGame:
                  flag_pos=None, flag_radius: float = 30,
                  survival: bool = False, survival_secs: float = 120.0,
                  current_force: float = 90.0, scroll_speed: float = 5.0,
-                 enemy_budget: int = 0, spawn_pool=None):
+                 enemy_budget: int = 0, spawn_pool=None,
+                 topology: str = "torus"):
         pygame.init()
         self.screen = pygame.display.set_mode((width, height))
         pygame.display.set_caption("Boat Simulator — WASD/arrows to move, click to splash")
@@ -78,6 +82,7 @@ class WaterGame:
         self._scroll_accum  = 0.0
 
         self._result: str | None = None
+        self._obstacle_cells: dict = {}   # id(entity) -> (gx, gy, gr)
 
         # World / camera (world is larger than the viewport)
         self.world_w = WORLD_W
@@ -87,6 +92,9 @@ class WaterGame:
 
         # Player weapon (assigned externally before run())
         self.player_weapon = None
+
+        # Topology: "torus" = wrap-around edges; "bounded" = solid walls
+        self.topology = topology
 
         # Continuous enemy spawning
         self.enemy_budget = enemy_budget
@@ -102,7 +110,9 @@ class WaterGame:
         e = Entity(x=x, y=y, **kwargs)
         if e.static:
             gx = x / CELL_W;  gy = y / CELL_H
-            self.water.set_obstacle(gx, gy, e.radius / max(CELL_W, CELL_H) + 1)
+            gr = e.radius / max(CELL_W, CELL_H) + 1
+            self.water.set_obstacle(gx, gy, gr)
+            self._obstacle_cells[id(e)] = (gx, gy, gr)
         if e.controllable:
             self.player = e
         self.entities.append(e)
@@ -130,6 +140,7 @@ class WaterGame:
             self._resolve_collisions()
             self._update_enemies(dt)
             self._cleanup_dead_enemies()
+            self._cleanup_dead_obstacles()
             self._maybe_spawn_enemy(dt)
             self._update_projectiles(dt)
             self._update_explosions(dt)
@@ -140,7 +151,6 @@ class WaterGame:
             if self._frame % self.fps == 0:
                 self._print_positions()
             self.clock.tick(self.fps)
-        pygame.quit()
         return self._result or "quit"
 
     # ── Per-frame printing ─────────────────────────────────────────────────────
@@ -151,22 +161,45 @@ class WaterGame:
             tag    = "player" if e.controllable else (e.name or (f"obstacle" if e.static else f"entity{i}"))
             status = f"hp={e.hp:.0f}/{e.max_hp:.0f}" if not e.static else "static"
             print(f"  {tag}:({e.x:.0f},{e.y:.0f}) {status}", end="")
-        print()
+        # Water diagnostics: print min/max height every second to detect blowup
+        try:
+            hmin = float(self.water.h.min())
+            hmax = float(self.water.h.max())
+            print(f"  water:hmin={hmin:.6g},hmax={hmax:.6g}")
+            # flag unusually large values
+            if abs(hmin) > 0.5 or abs(hmax) > 0.5:
+                print("  WARNING: large water heights detected — possible numerical blowup")
+        except Exception:
+            print()
 
     # ── Camera ────────────────────────────────────────────────────────────────
     def _update_camera(self):
         if self.player is None:
             return
+        min_zoom = max(self.width / self.world_w, self.height / self.world_h)
         half_w   = self.width  / (2.0 * self.zoom)
         half_h   = self.height / (2.0 * self.zoom)
-        target_x = self.player.x - half_w
-        target_y = self.player.y - half_h
         if self.survival:
-            target_x = max(0.0, min(target_x, self.world_w - self.width / self.zoom))
+            target_x = max(0.0, min(self.player.x - half_w,
+                                    self.world_w - self.width / self.zoom))
+            target_y = self.player.y - half_h
+            self.cam_x += (target_x - self.cam_x) * 0.08
+            self.cam_y += (target_y - self.cam_y) * 0.08
+        elif self.zoom <= min_zoom * 1.001:
+            # Fully zoomed out: the whole world is visible — lock to origin.
+            self.cam_x += (0.0 - self.cam_x) * 0.08
+            self.cam_y += (0.0 - self.cam_y) * 0.08
+        elif self.topology == "bounded":
+            # Clamp camera so it never shows outside world bounds
+            max_cam_x = max(0.0, self.world_w - self.width  / self.zoom)
+            max_cam_y = max(0.0, self.world_h - self.height / self.zoom)
+            target_x = max(0.0, min(self.player.x - half_w, max_cam_x))
+            target_y = max(0.0, min(self.player.y - half_h, max_cam_y))
             self.cam_x += (target_x - self.cam_x) * 0.08
             self.cam_y += (target_y - self.cam_y) * 0.08
         else:
-            # Torus-aware lerp: take the shortest path around the wrap
+            target_x = self.player.x - half_w
+            target_y = self.player.y - half_h
             dx = target_x - self.cam_x
             dy = target_y - self.cam_y
             dx -= self.world_w * round(dx / self.world_w)
@@ -175,14 +208,16 @@ class WaterGame:
             self.cam_y += dy * 0.08
 
     def _w2s(self, wx: float, wy: float):
-        """World → screen (float) coords, using torus minimum-image."""
-        sx = wx - self.cam_x
-        sy = wy - self.cam_y
-        if not self.survival:
-            if sx >  self.world_w / 2: sx -= self.world_w
-            elif sx < -self.world_w / 2: sx += self.world_w
-        if sy >  self.world_h / 2: sy -= self.world_h
-        elif sy < -self.world_h / 2: sy += self.world_h
+        """World → screen (float) coords."""
+        if self.survival:
+            sx = wx - self.cam_x
+            sy = (wy - self.cam_y) % self.world_h
+        elif self.topology == "bounded":
+            sx = wx - self.cam_x
+            sy = wy - self.cam_y
+        else:
+            sx = (wx - self.cam_x) % self.world_w
+            sy = (wy - self.cam_y) % self.world_h
         return sx * self.zoom, sy * self.zoom
 
     # ── Survival mode ─────────────────────────────────────────────────────────
@@ -216,8 +251,9 @@ class WaterGame:
         if self.flag_pos is not None:
             dx = self.player.x - self.flag_pos[0]
             dy = self.player.y - self.flag_pos[1]
-            dx -= self.world_w * round(dx / self.world_w)
-            dy -= self.world_h * round(dy / self.world_h)
+            if self.topology != "bounded":
+                dx -= self.world_w * round(dx / self.world_w)
+                dy -= self.world_h * round(dy / self.world_h)
             if math.hypot(dx, dy) < self.flag_radius:
                 self._result = "win"
                 self.running = False
@@ -251,13 +287,15 @@ class WaterGame:
                 self.running = False
             elif event.type == pygame.MOUSEWHEEL:
                 factor = 1.1 if event.y > 0 else (1.0 / 1.1)
-                self.zoom = max(0.25, min(4.0, self.zoom * factor))
+                min_zoom = max(self.width / self.world_w, self.height / self.world_h)
+                self.zoom = max(min_zoom, min(4.0, self.zoom * factor))
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = event.pos
                 # Left click fires the player weapon (if any); right click always splashes
                 if event.button != 1 or self.player_weapon is None:
-                    wx = (mx + self.cam_x) % self.world_w
-                    wy = (my + self.cam_y) % self.world_h
+                    # convert screen coords (mx,my) -> world coords, accounting for zoom
+                    wx = ((mx / self.zoom) + self.cam_x) % self.world_w
+                    wy = ((my / self.zoom) + self.cam_y) % self.world_h
                     self.water.splash(wx / CELL_W, wy / CELL_H, SPLASH_AMP, SPLASH_R)
 
     def _handle_input(self):
@@ -279,9 +317,8 @@ class WaterGame:
         if (self.player_weapon and self.player.alive
                 and pygame.mouse.get_pressed()[0]):
             mx, my = pygame.mouse.get_pos()
-            # Direction: player screen pos → mouse (camera offset cancels out)
-            psx = self.player.x - self.cam_x
-            psy = self.player.y - self.cam_y
+            # Direction: compute player's screen position using _w2s and aim toward mouse
+            psx, psy = self._w2s(self.player.x, self.player.y)
             angle  = math.atan2(my - psy, mx - psx)
             projs  = self.player_weapon.fire(self.player.x, self.player.y, angle)
             for p in projs:
@@ -323,29 +360,47 @@ class WaterGame:
                     e.hp = 0.0          # swept off the left edge → dead
                 elif e.x > self.world_w:
                     e.x = float(self.world_w)
+            elif self.topology == "bounded":
+                e.x += e.vx * dt;  e.y += e.vy * dt
+                if e.x < e.radius:              e.x = e.radius;             e.vx = abs(e.vx)
+                elif e.x > self.world_w - e.radius: e.x = self.world_w - e.radius; e.vx = -abs(e.vx)
+                if e.y < e.radius:              e.y = e.radius;             e.vy = abs(e.vy)
+                elif e.y > self.world_h - e.radius: e.y = self.world_h - e.radius; e.vy = -abs(e.vy)
             else:
                 e.x = (e.x + e.vx * dt) % self.world_w
                 e.y = (e.y + e.vy * dt) % self.world_h
             e.ax = 0.0;  e.ay = 0.0
 
     def _resolve_collisions(self):
+        torus = self.topology != "bounded" and not self.survival
         for i, a in enumerate(self.entities):
             if not a.alive: continue
             for b in self.entities[i + 1:]:
                 if not b.alive: continue
-                ddx = b.x - a.x;  ddx -= self.world_w * round(ddx / self.world_w)
-                ddy = b.y - a.y;  ddy -= self.world_h * round(ddy / self.world_h)
+                ddx = b.x - a.x
+                ddy = b.y - a.y
+                if torus:
+                    ddx -= self.world_w * round(ddx / self.world_w)
+                    ddy -= self.world_h * round(ddy / self.world_h)
                 dist = math.hypot(ddx, ddy)
                 min_dist = a.radius + b.radius
                 if dist >= min_dist or dist < 1e-6: continue
                 nx = ddx / dist;  ny = ddy / dist
                 overlap = min_dist - dist
                 if not a.static:
-                    a.x = (a.x - nx * overlap * (0.5 if not b.static else 1.0)) % self.world_w
-                    a.y = (a.y - ny * overlap * (0.5 if not b.static else 1.0)) % self.world_h
+                    if torus:
+                        a.x = (a.x - nx * overlap * (0.5 if not b.static else 1.0)) % self.world_w
+                        a.y = (a.y - ny * overlap * (0.5 if not b.static else 1.0)) % self.world_h
+                    else:
+                        a.x -= nx * overlap * (0.5 if not b.static else 1.0)
+                        a.y -= ny * overlap * (0.5 if not b.static else 1.0)
                 if not b.static:
-                    b.x = (b.x + nx * overlap * (0.5 if not a.static else 1.0)) % self.world_w
-                    b.y = (b.y + ny * overlap * (0.5 if not a.static else 1.0)) % self.world_h
+                    if torus:
+                        b.x = (b.x + nx * overlap * (0.5 if not a.static else 1.0)) % self.world_w
+                        b.y = (b.y + ny * overlap * (0.5 if not a.static else 1.0)) % self.world_h
+                    else:
+                        b.x += nx * overlap * (0.5 if not a.static else 1.0)
+                        b.y += ny * overlap * (0.5 if not a.static else 1.0)
                 rel_vn = (b.vx - a.vx) * nx + (b.vy - a.vy) * ny
                 if rel_vn >= 0: continue
                 impact = abs(rel_vn)
@@ -374,8 +429,10 @@ class WaterGame:
 
     # ── Projectiles ────────────────────────────────────────────────────────────
     def _torus_dist(self, ax, ay, bx, by) -> float:
-        dx = bx - ax;  dx -= self.world_w * round(dx / self.world_w)
-        dy = by - ay;  dy -= self.world_h * round(dy / self.world_h)
+        dx = bx - ax;  dy = by - ay
+        if self.topology != "bounded":
+            dx -= self.world_w * round(dx / self.world_w)
+            dy -= self.world_h * round(dy / self.world_h)
         return math.hypot(dx, dy)
 
     def _update_projectiles(self, dt: float):
@@ -387,7 +444,7 @@ class WaterGame:
                     self._do_explosion(proj)
                 continue
 
-            # Move — torus wrap in normal mode; hard boundary in survival
+            # Move — wrap (torus), despawn at edge (bounded/survival)
             proj.x += proj.vx * dt
             proj.y += proj.vy * dt
             if self.survival:
@@ -396,6 +453,12 @@ class WaterGame:
                         self._do_explosion(proj)
                     continue
                 proj.y %= self.world_h
+            elif self.topology == "bounded":
+                if (proj.x < 0 or proj.x > self.world_w or
+                        proj.y < 0 or proj.y > self.world_h):
+                    if proj.explodes:
+                        self._do_explosion(proj)
+                    continue
             else:
                 proj.x %= self.world_w
                 proj.y %= self.world_h
@@ -403,7 +466,7 @@ class WaterGame:
             # Hit-test against all living non-static entities
             killed = False
             for e in self.entities:
-                if not e.alive or e.static or id(e) in proj.hits:
+                if not e.alive or id(e) in proj.hits:
                     continue
                 if self._torus_dist(proj.x, proj.y, e.x, e.y) <= e.radius:
                     # Compute actual damage
@@ -416,7 +479,7 @@ class WaterGame:
                     e.hp = max(0.0, e.hp - dmg)
                     proj.hits.add(id(e))
                     # Wave ripple at impact
-                    self.water.splash(proj.x / CELL_W, proj.y / CELL_H, 0.8, 2)
+                    self.water.splash(proj.x / CELL_W, proj.y / CELL_H, 0.008, 2)
                     if not proj.pierce:
                         killed = True
                         if proj.explodes:
@@ -431,13 +494,13 @@ class WaterGame:
     def _do_explosion(self, proj: Projectile):
         """Apply AoE damage, water splash, and schedule a visual flash."""
         for e in self.entities:
-            if not e.alive or e.static:
+            if not e.alive or id(e) in proj.hits:
                 continue
             d = self._torus_dist(proj.x, proj.y, e.x, e.y)
             if d < proj.explosion_radius:
                 dmg = proj.explosion_damage * max(0.0, 1.0 - d / proj.explosion_radius)
                 e.hp = max(0.0, e.hp - dmg)
-        self.water.splash(proj.x / CELL_W, proj.y / CELL_H, 3.0, 12)
+        self.water.splash(proj.x / CELL_W, proj.y / CELL_H, 0.04, 8)
         self._explosions.append({
             "x": proj.x, "y": proj.y,
             "r": 4, "max_r": int(proj.explosion_radius),
@@ -458,6 +521,19 @@ class WaterGame:
         self.enemies  = [en for en in self.enemies if en.entity.alive]
         self.entities = [e  for e  in self.entities
                          if e.controllable or e.static or id(e) not in dead_ids]
+
+    def _cleanup_dead_obstacles(self):
+        """Remove destroyed obstacles and unpin their water grid cells."""
+        dead = [e for e in self.entities if e.static and not e.alive]
+        if not dead:
+            return
+        for e in dead:
+            cell = self._obstacle_cells.pop(id(e), None)
+            if cell:
+                gx, gy, gr = cell
+                self.water.unset_obstacle(gx, gy, gr)
+        dead_ids = {id(e) for e in dead}
+        self.entities = [e for e in self.entities if id(e) not in dead_ids]
 
     def _maybe_spawn_enemy(self, dt: float):
         """Spawn one enemy if living count is below budget."""
@@ -480,36 +556,127 @@ class WaterGame:
                 sx = random.uniform(0, self.world_w)
                 sy = random.uniform(0, self.world_h)
             if (self.player is None or
-                    self._torus_dist(sx, sy, self.player.x, self.player.y) > 600):
+                    self._torus_dist(sx, sy, self.player.x, self.player.y) > self.world_w // 4):
                 break
 
         self.add_enemy(_SPAWN_FACTORIES[random.choice(self.spawn_pool)](sx, sy))
 
     # ── Rendering ──────────────────────────────────────────────────────────────
+    @staticmethod
+    def _poly_pts(n: int, r: float, angle_offset: float = 0.0):
+        """Return n-gon points at radius r, rotated by angle_offset."""
+        return [
+            (r * math.cos(2 * math.pi * i / n + angle_offset),
+             r * math.sin(2 * math.pi * i / n + angle_offset))
+            for i in range(n)
+        ]
+
+    @staticmethod
+    def _transform_pts(pts, sx, sy, r, angle):
+        """Scale by r, rotate by angle, translate to (sx, sy)."""
+        ca, sa = math.cos(angle), math.sin(angle)
+        out = []
+        for px, py in pts:
+            rx = px * r * ca - py * r * sa
+            ry = px * r * sa + py * r * ca
+            out.append((int(sx + rx), int(sy + ry)))
+        return out
+
+    def _draw_enemy_shape(self, e: Entity, sx: int, sy: int, r: int):
+        """Draw a type-specific polygon for an enemy entity."""
+        name = (e.name or "").lower()
+        angle = math.atan2(e.vy, e.vx) if math.hypot(e.vx, e.vy) > 1 else 0.0
+        col = e.color
+        lite = (min(255, col[0] + 60), min(255, col[1] + 60), min(255, col[2] + 60))
+
+        if name == "chaser":
+            pts = self._transform_pts([(0,-1),(0.85,0.5),(-0.85,0.5)], sx, sy, r, angle - math.pi/2)
+            pygame.draw.polygon(self.screen, col, pts)
+            pygame.draw.polygon(self.screen, lite, pts, 1)
+        elif name == "sniper":
+            pts = self._transform_pts([(0,-1.4),(0.6,0),(0,1.4),(-0.6,0)], sx, sy, r, angle)
+            pygame.draw.polygon(self.screen, col, pts)
+            pygame.draw.polygon(self.screen, lite, pts, 1)
+        elif name == "artillery":
+            sq = self._transform_pts([(-1,-1),(1,-1),(1,1),(-1,1)], sx, sy, r * 0.75, 0)
+            pygame.draw.polygon(self.screen, col, sq)
+            pygame.draw.polygon(self.screen, lite, sq, 1)
+            # barrel nub pointing in direction of motion
+            bx = int(sx + math.cos(angle) * r * 1.1)
+            by = int(sy + math.sin(angle) * r * 1.1)
+            pygame.draw.line(self.screen, lite, (sx, sy), (bx, by), max(3, r // 4))
+        elif name == "patrol":
+            pts = self._transform_pts(self._poly_pts(6, 1.0, 0), sx, sy, r, 0)
+            pygame.draw.polygon(self.screen, col, pts)
+            pygame.draw.polygon(self.screen, lite, pts, 1)
+        elif name == "boss":
+            pygame.draw.circle(self.screen, col, (sx, sy), r)
+            pygame.draw.circle(self.screen, lite, (sx, sy), r, 2)
+            pygame.draw.circle(self.screen, lite, (sx, sy), max(r - 6, 4), 1)
+        else:  # drifter / fallback: pentagon
+            pts = self._transform_pts(self._poly_pts(5, 1.0, -math.pi/2), sx, sy, r, 0)
+            pygame.draw.polygon(self.screen, col, pts)
+            pygame.draw.polygon(self.screen, lite, pts, 1)
+
     def _draw_entity_at(self, e: Entity, sx: int, sy: int, draw_r: int = 0):
         r = draw_r if draw_r > 0 else int(e.radius)
         if not e.alive:
             pygame.draw.circle(self.screen, (80, 80, 80), (sx, sy), r)
-            pygame.draw.circle(self.screen, (50, 50, 50), (sx, sy), r, 2)
             return
-        pygame.draw.circle(self.screen, e.color, (sx, sy), r)
+
         if e.controllable:
-            pygame.draw.circle(self.screen, (255, 255, 255), (sx, sy), r, 2)
-        elif e.static:
-            pygame.draw.circle(self.screen, (200, 180, 140), (sx, sy), r, 2)
-        else:
-            pygame.draw.circle(self.screen, (180, 180, 180), (sx, sy), r, 1)
-        if not e.static:
+            mx, my = pygame.mouse.get_pos()
+            psx, psy = self._w2s(e.x, e.y)
+            angle = math.atan2(my - psy, mx - psx)
+            _wt_map = {
+                "pistol":      "pistol",
+                "machinegun":  "machine_gun",
+                "sniper":      "sniper",
+                "bazooka":     "bazooka",
+                "shotgun":     "shotgun",
+            }
+            wt = _wt_map.get(type(self.player_weapon).__name__.lower(), "pistol") if self.player_weapon else "pistol"
+            PlayerVisual.draw(self.screen, sx, sy, angle, wt, radius=int(r * 52.0 / 14.0))
             bar_w = max(r * 2, 20);  bar_h = 5
-            bx    = sx - bar_w // 2;  by = sy - r - 12
+            bx = sx - bar_w // 2;  by = sy - r - 12
+            frac = e.hp / e.max_hp;  fill_w = max(0, int(bar_w * frac))
+            color = (30,200,30) if frac > 0.5 else (230,160,0) if frac > 0.25 else (210,30,30)
             pygame.draw.rect(self.screen, (60, 15, 15), (bx-1, by-1, bar_w+2, bar_h+2))
-            frac   = e.hp / e.max_hp;  fill_w = max(0, int(bar_w * frac))
-            color  = (30,200,30) if frac > 0.5 else (230,160,0) if frac > 0.25 else (210,30,30)
             if fill_w > 0:
                 pygame.draw.rect(self.screen, color, (bx, by, fill_w, bar_h))
-            if e.name:
-                lbl = self._font.render(e.name, True, (220, 220, 220))
-                self.screen.blit(lbl, (sx - lbl.get_width()//2, by - 14))
+            return
+
+        if e.static:
+            frac = e.hp / e.max_hp if e.max_hp > 0 else 1.0
+            base = e.color
+            red_mix = int((1.0 - frac) * 200)
+            tinted = (min(255, base[0] + red_mix),
+                      max(0, base[1] - red_mix // 2),
+                      max(0, base[2] - red_mix // 2))
+            pygame.draw.circle(self.screen, tinted, (sx, sy), r)
+            pygame.draw.circle(self.screen, (200, 180, 140), (sx, sy), r, 2)
+            if frac < 1.0:
+                bar_w = max(r * 2, 16);  bar_h = 4
+                bx = sx - bar_w // 2;  by = sy - r - 8
+                pygame.draw.rect(self.screen, (60, 15, 15), (bx-1, by-1, bar_w+2, bar_h+2))
+                fill_w = max(0, int(bar_w * frac))
+                fc = (30,200,30) if frac > 0.5 else (230,160,0) if frac > 0.25 else (210,30,30)
+                if fill_w > 0:
+                    pygame.draw.rect(self.screen, fc, (bx, by, fill_w, bar_h))
+            return
+
+        # Non-player, non-static entities (enemies)
+        self._draw_enemy_shape(e, sx, sy, r)
+        bar_w = max(r * 2, 20);  bar_h = 5
+        bx = sx - bar_w // 2;  by = sy - r - 12
+        pygame.draw.rect(self.screen, (60, 15, 15), (bx-1, by-1, bar_w+2, bar_h+2))
+        frac = e.hp / e.max_hp;  fill_w = max(0, int(bar_w * frac))
+        color = (30,200,30) if frac > 0.5 else (230,160,0) if frac > 0.25 else (210,30,30)
+        if fill_w > 0:
+            pygame.draw.rect(self.screen, color, (bx, by, fill_w, bar_h))
+        if e.name:
+            lbl = self._font.render(e.name, True, (220, 220, 220))
+            self.screen.blit(lbl, (sx - lbl.get_width()//2, by - 14))
 
     def _draw_flag_arrow(self, sx: float, sy: float):
         """Arrow at the screen edge pointing toward the off-screen flag."""
@@ -567,11 +734,18 @@ class WaterGame:
         col_idx = np.arange(cells_x) % GRID_W
         h_sl    = h_view[np.ix_(row_idx, col_idx)]
         h_norm  = np.clip(h_sl / SPLASH_AMP, -1.0, 1.0) * 0.5 + 0.5
-        t_low   = np.clip(h_norm * 2.0,         0.0, 1.0)[..., np.newaxis]
-        t_high  = np.clip((h_norm - 0.5) * 2.0, 0.0, 1.0)[..., np.newaxis]
+        # multi-stop palette blending: deep -> mid -> shallow -> foam/crest
+        c = h_norm
+        # regions: [0,0.33], (0.33,0.66], (0.66,1.0]
+        w1 = np.clip((0.33 - c) / 0.33, 0.0, 1.0)[..., np.newaxis]
+        w2 = np.clip((c - 0.33) / 0.33, 0.0, 1.0)[..., np.newaxis] * np.clip((0.66 - c) / 0.33, 0.0, 1.0)[..., np.newaxis]
+        w3 = np.clip((c - 0.66) / 0.34, 0.0, 1.0)[..., np.newaxis]
+        # build color by blending contributions
         color_sl = (
-            (1.0 - t_low) * COLOR_DEEP + t_low * COLOR_SHALLOW
-            - t_high * COLOR_SHALLOW   + t_high * COLOR_CREST
+            w1 * COLOR_DEEP +
+            (1.0 - w1 - w2 - w3) * COLOR_MID +
+            w2 * COLOR_SHALLOW +
+            w3 * COLOR_FOAM
         ).astype(np.uint8)
         big     = np.repeat(np.repeat(color_sl, CELL_H, axis=0), CELL_W, axis=1)
         vis_w   = int(math.ceil(self.width  / self.zoom)) + CELL_W
@@ -593,7 +767,8 @@ class WaterGame:
             sx, sy = self._w2s(proj.x, proj.y)
             pr = max(1, int((5 if proj.explodes else 3) * self.zoom))
             if sx + pr >= 0 and sx - pr < self.width and sy + pr >= 0 and sy - pr < self.height:
-                pygame.draw.circle(self.screen, proj.color, (int(sx), int(sy)), pr)
+                BulletVisual.draw(self.screen, int(sx), int(sy), proj.color, pr,
+                                  (proj.vx, proj.vy), proj.explodes, proj.weapon_type)
 
         # ── Flag ──
         if self.flag_pos is not None:

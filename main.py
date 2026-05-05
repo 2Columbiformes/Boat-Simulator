@@ -1,9 +1,11 @@
 """Entry point — wires menu → level select → game."""
+import pygame
 from menu import MainMenu
 from level_select import LevelSelect
 from levels import LEVELS
 from game import WaterGame
 from enemy import make_drift, make_chaser, make_sniper, make_artillery, make_patrol, make_boss
+from weapons_menu import WeaponMenu, make_weapon
 
 
 _FACTORIES = {
@@ -16,7 +18,7 @@ _FACTORIES = {
 }
 
 
-def _build_game(lvl) -> WaterGame:
+def _build_game(lvl, weapon_override=None) -> WaterGame:
     game = WaterGame(
         flag_pos      = lvl.flag_pos,
         survival      = lvl.survival,
@@ -25,14 +27,16 @@ def _build_game(lvl) -> WaterGame:
         scroll_speed  = lvl.scroll_speed,
         enemy_budget  = lvl.enemy_budget,
         spawn_pool    = lvl.spawn_pool or [],
+        topology      = lvl.topology,
     )
     px, py = lvl.player_start
     game.add_entity(x=px, y=py, mass=2.0, radius=14,
                     color=(50, 220, 80), controllable=True, max_hp=1000, name="player")
     for obs in lvl.obstacles:
+        hp = obs.get("hp", obs["radius"] * 35)
         game.add_entity(x=obs["x"], y=obs["y"],
                         mass=10.0, radius=obs["radius"],
-                        color=obs.get("color", (110, 90, 60)), static=True)
+                        color=obs.get("color", (110, 90, 60)), static=True, max_hp=hp)
     for edef in lvl.enemies:
         t = edef["type"]
         if t == "patrol":
@@ -46,32 +50,45 @@ def _build_game(lvl) -> WaterGame:
         game.add_enemy(enemy)
     for gx, gy, amp, r in lvl.splashes:
         game.water.splash(gx, gy, amp, r)
-    game.player_weapon = lvl.player_weapon
+    game.player_weapon = weapon_override or lvl.player_weapon
     return game
 
 
 def main():
     menu = MainMenu()
-    if menu.run() != "play":
-        return
-
-    level_names     = [lvl.name for lvl in LEVELS]
-    levels_unlocked = 1
+    chosen_weapon  = None   # None = use level default
+    level_names    = [lvl.name for lvl in LEVELS]
+    levels_unlocked = 1     # persists across weapon-menu visits
 
     while True:
-        sel = LevelSelect(level_names, levels_unlocked).run()
-        if sel == -1:
-            if menu.run() != "play":
-                return
+        result = menu.run()
+        if result == "quit":
+            break
+        if result == "weapons":
+            name = WeaponMenu().run()
+            chosen_weapon = make_weapon(name)
             continue
 
-        result = _build_game(LEVELS[sel]).run()   # "win" | "lose" | "quit"
+        # result == "play"
+        quit_game = False
+        while True:
+            sel = LevelSelect(level_names, levels_unlocked).run()
+            if sel == -1:
+                break   # back to main menu
 
-        if result == "win" and sel + 1 == levels_unlocked and levels_unlocked < len(LEVELS):
-            levels_unlocked += 1
-        if result == "quit":
-            return
-        # "win" or "lose" → loop back to level select
+            result = _build_game(LEVELS[sel], chosen_weapon).run()
+
+            if result == "win" and sel + 1 == levels_unlocked and levels_unlocked < len(LEVELS):
+                levels_unlocked += 1
+            if result == "quit":
+                quit_game = True
+                break
+            # "win" or "lose" → loop back to level select
+
+        if quit_game:
+            break
+
+    pygame.quit()
 
 
 if __name__ == "__main__":

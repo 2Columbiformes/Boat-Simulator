@@ -25,10 +25,12 @@ class MainMenu:
         self._btn_font   = pygame.font.SysFont(None, 46)
 
     def run(self) -> str:
+        import math as _math
         btn_w, btn_h = 200, 56
         cx = self.W // 2
-        play_rect = pygame.Rect(cx - btn_w // 2, self.H // 2 + 20,  btn_w, btn_h)
-        quit_rect = pygame.Rect(cx - btn_w // 2, self.H // 2 + 100, btn_w, btn_h)
+        play_rect    = pygame.Rect(cx - btn_w // 2, self.H // 2 + 20,  btn_w, btn_h)
+        weapons_rect = pygame.Rect(cx - btn_w // 2, self.H // 2 + 100, btn_w, btn_h)
+        quit_rect    = pygame.Rect(cx - btn_w // 2, self.H // 2 + 180, btn_w, btn_h)
 
         while True:
             mx, my = pygame.mouse.get_pos()
@@ -40,17 +42,18 @@ class MainMenu:
                 if event.type == pygame.MOUSEBUTTONDOWN and event.button == 1:
                     if play_rect.collidepoint(mx, my):
                         return "play"
+                    if weapons_rect.collidepoint(mx, my):
+                        return "weapons"
                     if quit_rect.collidepoint(mx, my):
                         return "quit"
 
             self.screen.fill(self._BG)
 
-            # Animated wave hint — draw a few sine arcs
+            # Animated wave hint
             for i in range(5):
                 pts = []
                 for px in range(0, self.W, 4):
-                    import math
-                    py = int(self.H * 0.78 + 18 * math.sin((px + i * 40) / 60.0))
+                    py = int(self.H * 0.78 + 18 * _math.sin((px + i * 40) / 60.0))
                     pts.append((px, py))
                 if len(pts) > 1:
                     pygame.draw.lines(self.screen, (30, 80, 160), False, pts, 2)
@@ -58,11 +61,11 @@ class MainMenu:
             # Title
             title = self._title_font.render("BOAT SIMULATOR", True, self._TITLE)
             self.screen.blit(title, (cx - title.get_width() // 2, self.H // 2 - 130))
-            sub = self._sub_font.render("WASD/arrows to move  •  Click to splash", True, (130, 170, 220))
+            sub = self._sub_font.render("WASD/arrows to move  •  Hold LMB to fire", True, (130, 170, 220))
             self.screen.blit(sub, (cx - sub.get_width() // 2, self.H // 2 - 40))
 
             # Buttons
-            for rect, label in ((play_rect, "PLAY"), (quit_rect, "QUIT")):
+            for rect, label in ((play_rect, "PLAY"), (weapons_rect, "WEAPONS"), (quit_rect, "QUIT")):
                 hov = rect.collidepoint(mx, my)
                 pygame.draw.rect(self.screen, self._BTN_HOV if hov else self._BTN_BG,
                                  rect, border_radius=10)
