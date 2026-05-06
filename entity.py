@@ -16,6 +16,7 @@ class Entity:
     name:         str   = ""
     max_hp:       float = 100.0
     hp:           float = field(default=0.0)
+    wave_grad_k:  float = 1.0  # how much affected by water waves (1.0 = base)
     ax: float = field(default=0.0, repr=False)
     ay: float = field(default=0.0, repr=False)
 

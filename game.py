@@ -47,7 +47,9 @@ class WaterGame:
                  survival: bool = False, survival_secs: float = 120.0,
                  current_force: float = 90.0, scroll_speed: float = 5.0,
                  enemy_budget: int = 0, spawn_pool=None,
-                 topology: str = "torus"):
+                 topology: str = "torus",
+                 entity_barriers: bool = False,
+                 no_obstacle_damage: bool = False):
         pygame.init()
         self.screen = pygame.display.set_mode((width, height))
         pygame.display.set_caption("Boat Simulator — WASD/arrows to move, click to splash")
@@ -94,7 +96,10 @@ class WaterGame:
         self.player_weapon = None
 
         # Topology: "torus" = wrap-around edges; "bounded" = solid walls
-        self.topology = topology
+        self.topology           = topology
+        self.entity_barriers    = entity_barriers
+        self.no_obstacle_damage = no_obstacle_damage
+        self._splash_cooldown   = 0.0
 
         # Continuous enemy spawning
         self.enemy_budget = enemy_budget
@@ -105,7 +110,7 @@ class WaterGame:
     def add_entity(self, x: float, y: float, **kwargs) -> Entity:
         """
         Add a bare entity (player, static obstacle, etc.).
-        kwargs: mass, radius, color, vx, vy, max_hp, static, controllable, name
+        kwargs: mass, radius, color, vx, vy, max_hp, static, controllable, name, wave_grad_k
         """
         e = Entity(x=x, y=y, **kwargs)
         if e.static:
@@ -179,40 +184,44 @@ class WaterGame:
         min_zoom = max(self.width / self.world_w, self.height / self.world_h)
         half_w   = self.width  / (2.0 * self.zoom)
         half_h   = self.height / (2.0 * self.zoom)
-        if self.survival:
+        if self.survival and self._current_force > 0:
+            # Classic scrolling survival: clamp x so player can't go off the right
             target_x = max(0.0, min(self.player.x - half_w,
                                     self.world_w - self.width / self.zoom))
             target_y = self.player.y - half_h
             self.cam_x += (target_x - self.cam_x) * 0.08
             self.cam_y += (target_y - self.cam_y) * 0.08
         elif self.zoom <= min_zoom * 1.001:
-            # Fully zoomed out: the whole world is visible — lock to origin.
             self.cam_x += (0.0 - self.cam_x) * 0.08
             self.cam_y += (0.0 - self.cam_y) * 0.08
-        elif self.topology == "bounded":
-            # Clamp camera so it never shows outside world bounds
+        elif self.topology == "bounded" or self.entity_barriers:
             max_cam_x = max(0.0, self.world_w - self.width  / self.zoom)
             max_cam_y = max(0.0, self.world_h - self.height / self.zoom)
             target_x = max(0.0, min(self.player.x - half_w, max_cam_x))
             target_y = max(0.0, min(self.player.y - half_h, max_cam_y))
             self.cam_x += (target_x - self.cam_x) * 0.08
             self.cam_y += (target_y - self.cam_y) * 0.08
-        else:  # torus — camera clamped (entities are bounded, not wrapping)
-            max_cam_x = max(0.0, self.world_w - self.width  / self.zoom)
-            max_cam_y = max(0.0, self.world_h - self.height / self.zoom)
-            target_x = max(0.0, min(self.player.x - half_w, max_cam_x))
-            target_y = max(0.0, min(self.player.y - half_h, max_cam_y))
-            self.cam_x += (target_x - self.cam_x) * 0.08
-            self.cam_y += (target_y - self.cam_y) * 0.08
+        else:  # torus (and survival-without-current): wrapping camera
+            target_x = self.player.x - half_w
+            target_y = self.player.y - half_h
+            dx = target_x - self.cam_x
+            dy = target_y - self.cam_y
+            dx -= self.world_w * round(dx / self.world_w)
+            dy -= self.world_h * round(dy / self.world_h)
+            self.cam_x += dx * 0.08
+            self.cam_y += dy * 0.08
 
     def _w2s(self, wx: float, wy: float):
         """World → screen (float) coords."""
-        if self.survival:
+        if self.survival and self._current_force > 0:
             sx = wx - self.cam_x
             sy = (wy - self.cam_y) % self.world_h
-        else:
+        elif self.topology == "bounded" or self.entity_barriers:
             sx = wx - self.cam_x
             sy = wy - self.cam_y
+        else:  # torus (and survival-without-current)
+            sx = (wx - self.cam_x) % self.world_w
+            sy = (wy - self.cam_y) % self.world_h
         return sx * self.zoom, sy * self.zoom
 
     # ── Survival mode ─────────────────────────────────────────────────────────
@@ -246,6 +255,9 @@ class WaterGame:
         if self.flag_pos is not None:
             dx = self.player.x - self.flag_pos[0]
             dy = self.player.y - self.flag_pos[1]
+            if self.topology != "bounded" and not self.entity_barriers:
+                dx -= self.world_w * round(dx / self.world_w)
+                dy -= self.world_h * round(dy / self.world_h)
             if math.hypot(dx, dy) < self.flag_radius:
                 self._result = "win"
                 self.running = False
@@ -283,9 +295,8 @@ class WaterGame:
                 self.zoom = max(min_zoom, min(4.0, self.zoom * factor))
             elif event.type == pygame.MOUSEBUTTONDOWN:
                 mx, my = event.pos
-                # Left click fires the player weapon (if any); right click always splashes
-                if event.button != 1 or self.player_weapon is None:
-                    # convert screen coords (mx,my) -> world coords, accounting for zoom
+                # Left click without a weapon → one-shot splash
+                if event.button == 1 and self.player_weapon is None:
                     wx = ((mx / self.zoom) + self.cam_x) % self.world_w
                     wy = ((my / self.zoom) + self.cam_y) % self.world_h
                     self.water.splash(wx / CELL_W, wy / CELL_H, SPLASH_AMP, SPLASH_R)
@@ -294,7 +305,7 @@ class WaterGame:
         if self.player is None or not self.player.alive:
             return
         keys  = pygame.key.get_pressed()
-        accel = 300.0
+        accel = 150.0
         dt    = 1.0 / self.fps
         if keys[pygame.K_LEFT]  or keys[pygame.K_a]: self.player.vx -= accel * dt
         if keys[pygame.K_RIGHT] or keys[pygame.K_d]: self.player.vx += accel * dt
@@ -304,6 +315,15 @@ class WaterGame:
         if spd > 200.0:
             self.player.vx *= 200.0 / spd
             self.player.vy *= 200.0 / spd
+
+        # Right mouse button held: splash every 0.5 s
+        self._splash_cooldown -= dt
+        if pygame.mouse.get_pressed()[2] and self._splash_cooldown <= 0:
+            mx, my = pygame.mouse.get_pos()
+            wx = ((mx / self.zoom) + self.cam_x) % self.world_w
+            wy = ((my / self.zoom) + self.cam_y) % self.world_h
+            self.water.splash(wx / CELL_W, wy / CELL_H, SPLASH_AMP, SPLASH_R)
+            self._splash_cooldown = 0.1
 
         # Hold left mouse button to fire weapon toward cursor
         if (self.player_weapon and self.player.alive
@@ -328,12 +348,12 @@ class WaterGame:
             self.water.splash(gx, gy, -DISPLACE_AMP * e.mass, gr)
             spd = math.hypot(e.vx, e.vy)
             # Enemies create much weaker ripples to avoid saturating the grid
-            ripple = RIPPLE_AMP * (1.0 if e.controllable else 0.12)
+            ripple = RIPPLE_AMP #* (1.0 if e.controllable else 0.12)
             if spd > 5.0:
                 self.water.splash(gx, gy, ripple * spd * dt, max(gr * 0.6, 0.5))
             dx_w, dy_w = self.water.gradient_at(gx, gy)
-            # Enemies are pushed much harder by wave gradients
-            grad_k = WAVE_GRAD_K * (1.0 if e.controllable else 6.0)
+            # Use per-entity wave coupling strength
+            grad_k = WAVE_GRAD_K * e.wave_grad_k
             e.ax += -grad_k * dx_w / e.mass
             e.ay += -grad_k * dy_w / e.mass
             e.vx *= 1.0 - DRAG_K
@@ -345,29 +365,27 @@ class WaterGame:
             if e.static or not e.alive:
                 e.ax = e.ay = 0.0;  continue
             e.vx += e.ax * dt;  e.vy += e.ay * dt
-            if self.survival:
+            if self.survival and self._current_force > 0:
+                # Classic survival: x has a death zone, y wraps
                 e.x += e.vx * dt
                 e.y  = (e.y + e.vy * dt) % self.world_h
                 if e.x < 0:
                     e.hp = 0.0          # swept off the left edge → dead
                 elif e.x > self.world_w:
                     e.x = float(self.world_w)
-            elif self.topology == "bounded":
+            elif self.topology == "bounded" or self.entity_barriers:
                 e.x += e.vx * dt;  e.y += e.vy * dt
                 if e.x < e.radius:              e.x = e.radius;             e.vx = abs(e.vx)
                 elif e.x > self.world_w - e.radius: e.x = self.world_w - e.radius; e.vx = -abs(e.vx)
                 if e.y < e.radius:              e.y = e.radius;             e.vy = abs(e.vy)
                 elif e.y > self.world_h - e.radius: e.y = self.world_h - e.radius; e.vy = -abs(e.vy)
-            else:  # torus — entities bounce at walls; projectiles still wrap
-                e.x += e.vx * dt;  e.y += e.vy * dt
-                if e.x < e.radius:                  e.x = e.radius;                e.vx = abs(e.vx)
-                elif e.x > self.world_w - e.radius: e.x = self.world_w - e.radius; e.vx = -abs(e.vx)
-                if e.y < e.radius:                  e.y = e.radius;                e.vy = abs(e.vy)
-                elif e.y > self.world_h - e.radius: e.y = self.world_h - e.radius; e.vy = -abs(e.vy)
+            else:  # torus and survival-without-current: wrap both axes
+                e.x = (e.x + e.vx * dt) % self.world_w
+                e.y = (e.y + e.vy * dt) % self.world_h
             e.ax = 0.0;  e.ay = 0.0
 
     def _resolve_collisions(self):
-        torus = False  # entities bounce at walls in all modes; no wrap needed
+        torus = self.topology != "bounded" and not (self.survival and self._current_force > 0)
         for i, a in enumerate(self.entities):
             if not a.alive: continue
             for b in self.entities[i + 1:]:
@@ -410,8 +428,9 @@ class WaterGame:
                     a.vx -= j / a.mass * nx;  a.vy -= j / a.mass * ny
                     b.vx += j / b.mass * nx;  b.vy += j / b.mass * ny
                 dmg = impact * COLLISION_DMG_K
-                if not a.static: a.hp = max(0.0, a.hp - dmg)
-                if not b.static: b.hp = max(0.0, b.hp - dmg)
+                obstacle_pair = a.static or b.static
+                if not a.static: a.hp = max(0.0, a.hp - (0 if obstacle_pair and self.no_obstacle_damage else dmg))
+                if not b.static: b.hp = max(0.0, b.hp - (0 if obstacle_pair and self.no_obstacle_damage else dmg))
                 cx = (a.x + ddx * 0.5) % self.world_w
                 cy = (a.y + ddy * 0.5) % self.world_h
                 self.water.splash(cx / CELL_W, cy / CELL_H, impact * COLLISION_SPLASH, 3)
@@ -478,6 +497,7 @@ class WaterGame:
                     if not proj.pierce:
                         killed = True
                         if proj.explodes:
+                            proj.hits.discard(id(e))  # let AoE hit the direct target too
                             self._do_explosion(proj)
                         break
 
@@ -872,8 +892,8 @@ class WaterGame:
             tc   = (255, 80, 80) if self._survival_t < 30 else (255, 220, 80)
             hud  = self._font.render(f"Survive: {mins}:{secs:02d}", True, tc)
             self.screen.blit(hud, (self.width // 2 - hud.get_width() // 2, 8))
-            # Left-edge vignette when player is close to dying
-            if self.player and self.player.x < 600:
+            # Left-edge vignette only when there's an active current pushing player left
+            if self.player and self._current_force > 0 and self.player.x < 600:
                 alpha = int(180 * max(0.0, 1.0 - self.player.x / 600.0))
                 edge  = pygame.Surface((60, self.height), pygame.SRCALPHA)
                 edge.fill((200, 20, 20, alpha))

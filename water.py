@@ -12,7 +12,7 @@ FPS     = 60
 WAVE_SPEED   = 0.4   # CFL: must stay below 1/sqrt(2) ≈ 0.707
 DAMPING      = 0.99  # faster energy dissipation
 SPLASH_AMP   = 0.005
-SPLASH_R     = 2
+SPLASH_R     = 10
 
 # Numerical stabilization
 VISCOSITY    = 0.1   # Laplacian-based diffusion to damp short wavelengths
@@ -20,8 +20,8 @@ VISCOSITY    = 0.1   # Laplacian-based diffusion to damp short wavelengths
 MAX_H        = 0.05
 
 # ── Entity–water coupling ──────────────────────────────────────────────────────
-WAVE_GRAD_K  = 1.0    # wave gradient force on entities (was 0.01)
-DRAG_K       = 0.05   #0.02
+WAVE_GRAD_K  = 7000.0    # wave gradient force on entities (was 0.01)
+DRAG_K       = 0.02   #0.02
 DISPLACE_AMP = 0.0001   # was 0.01 — large values caused constant saturation
 RIPPLE_AMP   = 0.0005   # was 0.012 — scaled down to stay well below MAX_H
 
@@ -34,7 +34,13 @@ COLOR_CREST   = np.array([200, 230, 255], dtype=np.float32)
 
 
 class WaterGrid:
-    """Height-field shallow-water simulator on a torus (periodic BCs)."""
+    """Height-field shallow-water simulator on a torus (periodic boundaries).
+    
+    Stores:
+      - h:      current water height
+      - h_prev: previous frame height (needed for wave equation)
+      - fixed:  mask of obstacle cells that never move
+    """
 
     def __init__(self, grid_h: int = GRID_H, grid_w: int = GRID_W):
         self.grid_h = grid_h
@@ -44,6 +50,10 @@ class WaterGrid:
         self.h_prev = np.zeros((grid_h, grid_w), dtype=np.float32)
         self.fixed  = np.zeros((grid_h, grid_w), dtype=bool)
 
+    """Discrete 5-point Laplacian using periodic wrapping.
+        
+        This measures curvature of the height field and drives wave propagation.
+    """
     @staticmethod
     def _laplacian(h: np.ndarray) -> np.ndarray:
         return (
@@ -51,7 +61,7 @@ class WaterGrid:
             np.roll(h, -1, axis=1) + np.roll(h, 1, axis=1) -
             4.0 * h
         )
-
+    """Advance the wave simulation by one time step"""
     def step(self):
         lap = self._laplacian(self.h)
         h_new = 2.0 * self.h - self.h_prev + self.c2 * lap
@@ -70,7 +80,7 @@ class WaterGrid:
         h_new[self.fixed] = 0.0
         self.h_prev = self.h
         self.h      = h_new
-
+    """Inject a Gaussian splash centered at (gx, gy) in grid coordinates"""
     def splash(self, gx: float, gy: float, amplitude: float, radius: float):
         gx = gx % self.grid_w
         gy = gy % self.grid_h
@@ -86,7 +96,7 @@ class WaterGrid:
         # Keep h in bounds immediately so h_prev never diverges from h
         if MAX_H is not None:
             np.clip(self.h, -MAX_H, MAX_H, out=self.h)
-
+    """Mark a circular region as a fixed obstacle (height = 0)"""
     def set_obstacle(self, gx: float, gy: float, radius: float):
         gx = gx % self.grid_w
         gy = gy % self.grid_h
@@ -96,7 +106,7 @@ class WaterGrid:
         self.fixed[dx * dx + dy * dy < radius ** 2] = True
         self.h[self.fixed]      = 0.0
         self.h_prev[self.fixed] = 0.0
-
+    """Remove obstacle flag from a circular region"""
     def unset_obstacle(self, gx: float, gy: float, radius: float):
         gx = gx % self.grid_w
         gy = gy % self.grid_h
@@ -104,12 +114,14 @@ class WaterGrid:
         dx = (xs - gx).astype(np.float32);  dx -= self.grid_w * np.round(dx / self.grid_w)
         dy = (ys - gy).astype(np.float32);  dy -= self.grid_h * np.round(dy / self.grid_h)
         self.fixed[dx * dx + dy * dy < radius ** 2] = False
-
+    """Return height at nearest grid cell (integer lookup)"""
     def height_at(self, gx: float, gy: float) -> float:
         x = int(gx % self.grid_w)
         y = int(gy % self.grid_h)
         return float(self.h[y, x])
-
+    """Return bilinearly interpolated gradient of the height field.
+        Used to compute water forces on entities.
+    """
     def gradient_at(self, gx: float, gy: float):
         gx = gx % self.grid_w
         gy = gy % self.grid_h

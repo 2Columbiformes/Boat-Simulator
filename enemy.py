@@ -133,29 +133,29 @@ class Enemy:
 
 def make_drift(x: float, y: float) -> Enemy:
     e = Entity(x=x, y=y, mass=1.5, radius=22,
-               color=(220, 60, 60), max_hp=2400, name="drifter")
+               color=(220, 60, 60), max_hp=600, name="drifter", wave_grad_k=16.0)
     return Enemy(entity=e, weapon=Pistol(), ai_type="drift")
 
 def make_chaser(x: float, y: float) -> Enemy:
     e = Entity(x=x, y=y, mass=1.8, radius=24,
-               color=(220, 120, 40), max_hp=2700, name="chaser")
+               color=(220, 120, 40), max_hp=900, name="chaser", wave_grad_k=10.0)
     return Enemy(entity=e, weapon=MachineGun(), ai_type="chase")
 
 def make_sniper(x: float, y: float) -> Enemy:
     e = Entity(x=x, y=y, mass=1.2, radius=20,
-               color=(120, 60, 200), max_hp=1800, name="sniper")
+               color=(120, 60, 200), max_hp=600, name="sniper", wave_grad_k=6.0)
     return Enemy(entity=e, weapon=Sniper(), ai_type="snipe")
 
 def make_artillery(x: float, y: float) -> Enemy:
     e = Entity(x=x, y=y, mass=3.0, radius=32,
-               color=(180, 140, 40), max_hp=3600, name="artillery")
+               color=(180, 140, 40), max_hp=1500, name="artillery", wave_grad_k=1.0)
     return Enemy(entity=e, weapon=Bazooka(), ai_type="artillery")
 
 def make_patrol(x: float, y: float, cx: float = None, cy: float = None) -> Enemy:
     cx = cx if cx is not None else x
     cy = cy if cy is not None else y
     e  = Entity(x=x, y=y, mass=1.6, radius=24,
-                color=(200, 80, 160), max_hp=2550, name="patrol")
+                color=(200, 80, 160), max_hp=650, name="patrol", wave_grad_k=10.0)
     return Enemy(entity=e, weapon=Shotgun(), ai_type="patrol",
                  patrol_cx=cx, patrol_cy=cy)
 
@@ -163,35 +163,25 @@ def make_patrol(x: float, y: float, cx: float = None, cy: float = None) -> Enemy
 # ── Boss ───────────────────────────────────────────────────────────────────────
 
 class Boss(Enemy):
-    """Invincible level-5 boss: rams the player and fires MachineGun + Sniper + Bazooka."""
+    """Level-5 boss: chases the player and fires Sniper + Bazooka."""
 
     def __init__(self, x: float, y: float):
-        e = Entity(x=x, y=y, mass=4.0, radius=52,
-                   color=(220, 20, 20), max_hp=99999, name="BOSS")
-        super().__init__(entity=e, weapon=MachineGun(), ai_type="chase")
-        self._sniper  = Sniper()
+        e = Entity(x=x, y=y, mass=4.0, radius=40,
+                   color=(220, 20, 20), max_hp=1000, name="BOSS", wave_grad_k=10.0)
+        super().__init__(entity=e, weapon=Sniper(), ai_type="chase")
         self._bazooka = Bazooka()
 
     def _ai_chase(self, dt, tx, ty, dist, angle_to):
-        """Double-speed chase for ramming."""
         e = self.entity
-        e.vx += math.cos(angle_to) * 480.0 * dt
-        e.vy += math.sin(angle_to) * 480.0 * dt
-        if self.weapon.ready:
-            return self.weapon.fire(e.x, e.y, angle_to)
+        e.vx += math.cos(angle_to) * 120.0 * dt
+        e.vy += math.sin(angle_to) * 120.0 * dt
         return []
 
     def update(self, dt: float, target, water):
-        self.entity.hp = self.entity.max_hp   # truly invincible — reset every frame
-        self._sniper.tick(dt)
         self._bazooka.tick(dt)
         projs = list(super().update(dt, target, water))
         if target is not None and target.alive:
             angle_to = _torus_angle(self.entity.x, self.entity.y, target.x, target.y)
-            if self._sniper.ready:
-                extra = self._sniper.fire(self.entity.x, self.entity.y, angle_to)
-                for p in extra: p.hits.add(id(self.entity))
-                projs += extra
             if self._bazooka.ready:
                 extra = self._bazooka.fire(self.entity.x, self.entity.y, angle_to)
                 for p in extra: p.hits.add(id(self.entity))

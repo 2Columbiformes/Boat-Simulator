@@ -12,13 +12,16 @@ class LevelDef:
     enemies:       list         # dicts: {"type", "x", "y", "cx"(opt), "cy"(opt)}
     splashes:      list         # (gx, gy, amp, radius)
     survival:      bool  = False
-    survival_secs: float = 120.0
+    survival_secs: float = 60.0
     current_force: float = 80.0   # px/s² leftward (applied to player only)
     scroll_speed:  float = 4.0    # grid cells/s scrolled left visually
     player_weapon: object = None  # Weapon instance given to the player
     enemy_budget: int = 0
     spawn_pool: list = None
-    topology:      str  = "torus"  # "torus" = wrap edges; "bounded" = wall bounce
+    topology:            str  = "torus"   # "torus" = wrap edges; "bounded" = wall bounce
+    entity_barriers:    bool = False     # True = entities bounce at world edges; bullets still wrap
+    no_obstacle_damage: bool = False     # True = entities take no damage from hitting obstacles
+    obstacle_factory: object = None     # callable() -> (obstacles, enemies); called fresh each replay
 
 
 # All coordinates are in world space (800 × 600 — world matches screen).
@@ -39,7 +42,8 @@ level1 = LevelDef(
     splashes      = [
         (GRID_W // 2, GRID_H // 2, 0.02, 4),
     ],
-    player_weapon = Pistol(),
+    player_weapon   = Pistol(),
+    entity_barriers = True,
 )
 
 # ── Level 2: The Gauntlet ──────────────────────────────────────────────────────
@@ -65,16 +69,13 @@ level2 = LevelDef(
         {"type": "snipe", "x": 600, "y": 300},
         {"type": "chase", "x": 160, "y": 130},
         {"type": "chase", "x": 160, "y": 470},
-        {"type": "snipe", "x": 600, "y": 300},
-        {"type": "chase", "x": 160, "y": 130},
-        {"type": "chase", "x": 160, "y": 470},
-        {"type": "snipe", "x": 600, "y": 300},
     ],
     splashes      = [
         (GRID_W // 3,     GRID_H // 3,     0.015, 3),
         (GRID_W * 2 // 3, GRID_H * 2 // 3, 0.015, 3),
     ],
-    player_weapon = MachineGun(),
+    player_weapon   = MachineGun(),
+    entity_barriers = True,
 )
 
 # ── Level 3: Crossfire ─────────────────────────────────────────────────────────
@@ -91,8 +92,8 @@ level3 = LevelDef(
     enemies       = [
         {"type": "snipe",     "x": 700, "y": 500},
         {"type": "snipe",     "x": 100, "y": 100},
-        {"type": "artillery", "x": 400, "y": 300},
-        {"type": "artillery", "x": 400, "y": 300},
+        {"type": "snipe",     "x": 700, "y": 500},
+        {"type": "snipe",     "x": 100, "y": 100},
         {"type": "artillery", "x": 400, "y": 300},
         {"type": "artillery", "x": 400, "y": 300},
         {"type": "artillery", "x": 400, "y": 300},
@@ -103,7 +104,8 @@ level3 = LevelDef(
         (GRID_W // 4,     GRID_H // 4,     0.02, 4),
         (GRID_W * 3 // 4, GRID_H * 3 // 4, 0.015, 3),
     ],
-    player_weapon = Sniper(),
+    player_weapon   = Sniper(),
+    entity_barriers = True,
 )
 
 
@@ -153,7 +155,8 @@ def _maze_to_obstacles(maze, cell_size=50):
                 obstacles.append({
                     "x": x,
                     "y": y,
-                    "radius": int(cell_size * 0.45)
+                    "radius": int(cell_size * 0.45),
+                    "hp": 10**9,
                 })
     return obstacles
 
@@ -179,33 +182,34 @@ cell_size = 50
 cols = 15  # must be odd
 rows = 11  # must be odd
 
-maze = _generate_maze(cols, rows)
-maze_obstacles = _maze_to_obstacles(maze, cell_size)
 
-# Place enemies only in valid path cells
-open_cells = _get_open_cells(maze)
-enemies = []
-
-for r, c in random.sample(open_cells, min(6, len(open_cells))):
-    x, y = _cell_to_world(r, c, cell_size)
-    enemies.append({
-        "type": random.choice(["chase", "patrol", "drift"]),
-        "x": x,
-        "y": y
-    })
+def _make_maze_data():
+    """Generate a fresh random maze layout each call."""
+    maze  = _generate_maze(cols, rows)
+    obs   = _maze_to_obstacles(maze, cell_size)
+    cells = _get_open_cells(maze)
+    enems = []
+    for r, c in random.sample(cells, min(6, len(cells))):
+        x, y = _cell_to_world(r, c, cell_size)
+        enems.append({
+            "type": random.choice(["chase", "patrol", "drift"]),
+            "x": x,
+            "y": y,
+        })
+    return obs, enems
 
 
 level4 = LevelDef(
-    name          = "The Maze",
-    player_start  = (cell_size + 40, cell_size + 40),  # near (1,1)
-    flag_pos      = (
-        (cols - 2) * cell_size,
-        (rows - 2) * cell_size
-    ),
-    obstacles     = maze_obstacles,
-    enemies       = enemies,
-    splashes      = [],
-    player_weapon = Shotgun(),
+    name             = "The Maze",
+    player_start     = (cell_size + 40, cell_size + 40),
+    flag_pos         = ((cols - 2) * cell_size, (rows - 2) * cell_size),
+    obstacles        = [],   # filled fresh each replay by obstacle_factory
+    enemies          = [],
+    splashes         = [],
+    player_weapon       = Shotgun(),
+    obstacle_factory    = _make_maze_data,
+    entity_barriers     = True,
+    no_obstacle_damage  = True,
 )
 
 # ── Level 5: River of No Return (survival) ─────────────────────────────────────
@@ -213,25 +217,27 @@ level5 = LevelDef(
     name          = "No Return",
     player_start  = (650, 300),
     flag_pos      = None,           # win by surviving
-    obstacles     = [],
+    obstacles     = [
+        {"x": 400, "y": 300, "radius": 35},   # central island
+    ],
     enemies       = [
-        {"type": "chase",  "x": 400, "y": 300},
-        {"type": "chase",  "x": 400, "y": 300},
-        {"type": "chase",  "x": 400, "y": 300},
-        {"type": "chase",  "x": 400, "y": 300},
-        {"type": "chase",  "x": 400, "y": 300},
-        {"type": "chase",  "x": 400, "y": 300},
-        {"type": "chase",  "x": 400, "y": 300},
-        {"type": "patrol", "x": 300, "y": 200, "cx": 300, "cy": 200},
-        {"type": "snipe",  "x": 600, "y": 100},
+        {"type": "boss",      "x": 400, "y": 100},
+        {"type": "chase",     "x": 400, "y": 300},
+        {"type": "chase",     "x": 400, "y": 300},
+        {"type": "chase",     "x": 400, "y": 300},
+        {"type": "patrol",    "x": 300, "y": 200, "cx": 300, "cy": 200},
+        {"type": "patrol",    "x": 300, "y": 200, "cx": 300, "cy": 200},
+        {"type": "snipe",     "x": 600, "y": 100},
+        {"type": "artillery", "x": 400, "y": 300},
+        {"type": "artillery", "x": 400, "y": 300},
     ],
     splashes      = [
         (GRID_W * 3 // 4, GRID_H // 2, 0.02, 4),
     ],
     survival      = True,
-    survival_secs = 120.0,
-    current_force = 90.0,
-    scroll_speed  = 3.0,
+    survival_secs = 60.0,
+    current_force = 0.0,
+    scroll_speed  = 0.0,
     player_weapon = Bazooka(),
 )
 

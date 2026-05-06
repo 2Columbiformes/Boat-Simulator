@@ -273,9 +273,7 @@ class BulletVisual:
 
         seg_dot_pts = [(0, -2), (1, -2), (1, -1), (0, -1)] 
 
-        # --- SCALED UP FROM 1.0 TO 1.8 ---
-        SCALE = 1.8 
-        # ---------------------------------
+        SCALE = 3.6
         
         all_segments = [outline_continuous_pts, seg_recessed_band_pts, seg_body_1_charcoal_pts, seg_tip_pts, seg_body_2_deep_bronze_pts, seg_base_and_tail_pts, seg_dot_pts]
         scaled_pts = []

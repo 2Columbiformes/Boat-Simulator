@@ -1,5 +1,7 @@
 """Entry point — wires menu → level select → game."""
+import math
 import pygame
+from collections import defaultdict
 from menu import MainMenu
 from level_select import LevelSelect
 from levels import LEVELS
@@ -18,26 +20,49 @@ _FACTORIES = {
 }
 
 
+def _spread_enemies(enem_list, radius=40):
+    """Offset enemies that share the same spawn point so they don't overlap."""
+    groups = defaultdict(list)
+    for i, edef in enumerate(enem_list):
+        groups[(edef["x"], edef["y"])].append(i)
+    result = [dict(e) for e in enem_list]
+    for indices in groups.values():
+        if len(indices) > 1:
+            for k, idx in enumerate(indices):
+                angle = 2 * math.pi * k / len(indices)
+                result[idx]["x"] += math.cos(angle) * radius
+                result[idx]["y"] += math.sin(angle) * radius
+    return result
+
+
 def _build_game(lvl, weapon_override=None) -> WaterGame:
     game = WaterGame(
-        flag_pos      = lvl.flag_pos,
-        survival      = lvl.survival,
-        survival_secs = lvl.survival_secs,
-        current_force = lvl.current_force,
-        scroll_speed  = lvl.scroll_speed,
-        enemy_budget  = lvl.enemy_budget,
-        spawn_pool    = lvl.spawn_pool or [],
-        topology      = lvl.topology,
+        flag_pos            = lvl.flag_pos,
+        survival            = lvl.survival,
+        survival_secs       = lvl.survival_secs,
+        current_force       = lvl.current_force,
+        scroll_speed        = lvl.scroll_speed,
+        enemy_budget        = lvl.enemy_budget,
+        spawn_pool          = lvl.spawn_pool or [],
+        topology            = lvl.topology,
+        entity_barriers     = lvl.entity_barriers,
+        no_obstacle_damage  = lvl.no_obstacle_damage,
     )
     px, py = lvl.player_start
-    game.add_entity(x=px, y=py, mass=2.0, radius=14,
-                    color=(50, 220, 80), controllable=True, max_hp=1000, name="player")
-    for obs in lvl.obstacles:
-        hp = obs.get("hp", obs["radius"] * 35)
+    game.add_entity(x=px, y=py, mass=2.0, radius=21,
+                    color=(50, 220, 80), controllable=True, max_hp=1000, name="player",
+                    wave_grad_k=10.0)
+    # Fresh layout each replay when the level has a randomizing factory
+    if lvl.obstacle_factory is not None:
+        obs_list, enem_list = lvl.obstacle_factory()
+    else:
+        obs_list, enem_list = lvl.obstacles, lvl.enemies
+    for obs in obs_list:
+        hp = obs.get("hp", obs["radius"] * 350)
         game.add_entity(x=obs["x"], y=obs["y"],
                         mass=10.0, radius=obs["radius"],
                         color=obs.get("color", (110, 90, 60)), static=True, max_hp=hp)
-    for edef in lvl.enemies:
+    for edef in _spread_enemies(enem_list):
         t = edef["type"]
         if t == "patrol":
             enemy = make_patrol(edef["x"], edef["y"],
@@ -54,19 +79,48 @@ def _build_game(lvl, weapon_override=None) -> WaterGame:
     return game
 
 
+def _show_game_complete():
+    screen = pygame.display.get_surface()
+    w, h   = screen.get_size()
+    overlay = pygame.Surface((w, h), pygame.SRCALPHA)
+    overlay.fill((0, 0, 0, 200))
+    screen.blit(overlay, (0, 0))
+    big  = pygame.font.SysFont(None, 100)
+    mid  = pygame.font.SysFont(None, 48)
+    sub  = pygame.font.SysFont(None, 34)
+    lines = [
+        (big, "CONGRATULATIONS!", (80, 220, 120)),
+        (mid, "You have conquered all 5 levels!", (200, 240, 200)),
+        (sub, "Press any key to return to menu", (180, 180, 180)),
+    ]
+    y = h // 2 - 100
+    for font, text, color in lines:
+        surf = font.render(text, True, color)
+        screen.blit(surf, (w // 2 - surf.get_width() // 2, y))
+        y += surf.get_height() + 20
+    pygame.display.flip()
+    pygame.time.wait(500)
+    waiting = True
+    while waiting:
+        for event in pygame.event.get():
+            if event.type in (pygame.KEYDOWN, pygame.MOUSEBUTTONDOWN, pygame.QUIT):
+                waiting = False
+
+
 def main():
     menu = MainMenu()
-    chosen_weapon  = None   # None = use level default
-    level_names    = [lvl.name for lvl in LEVELS]
-    levels_unlocked = 1     # persists across weapon-menu visits
+    chosen_weapon    = None      # None = use level default
+    chosen_weapon_id = "pistol"  # tracks current id for the weapon menu highlight
+    level_names      = [lvl.name for lvl in LEVELS]
+    levels_unlocked  = 1
 
     while True:
         result = menu.run()
         if result == "quit":
             break
         if result == "weapons":
-            name = WeaponMenu().run()
-            chosen_weapon = make_weapon(name)
+            chosen_weapon_id = WeaponMenu(current_weapon=chosen_weapon_id).run()
+            chosen_weapon    = make_weapon(chosen_weapon_id)
             continue
 
         # result == "play"
@@ -80,6 +134,8 @@ def main():
 
             if result == "win" and sel + 1 == levels_unlocked and levels_unlocked < len(LEVELS):
                 levels_unlocked += 1
+            if result == "win" and sel == len(LEVELS) - 1:
+                _show_game_complete()
             if result == "quit":
                 quit_game = True
                 break

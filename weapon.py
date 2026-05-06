@@ -71,9 +71,9 @@ class Pistol(Weapon):
     fire_rate = 1.0
 
     def _make_projectiles(self, x, y, angle):
-        vx, vy = self._vel(1000.0, angle)
+        vx, vy = self._vel(250.0, angle)
         return [Projectile(x=x, y=y, vx=vx, vy=vy,
-                           damage=20.0, lifetime=2.5,
+                           damage=200.0, lifetime=2.5,
                            weapon_type="pistol",
                            color=(255, 255, 100))]
 
@@ -85,9 +85,9 @@ class MachineGun(Weapon):
     fire_rate = 8.0
 
     def _make_projectiles(self, x, y, angle):
-        vx, vy = self._vel(1120.0, angle, spread=math.radians(18))
+        vx, vy = self._vel(280.0, angle, spread=math.radians(18))
         return [Projectile(x=x, y=y, vx=vx, vy=vy,
-                           damage=8.0, lifetime=1.8,
+                           damage=16.0, lifetime=1.8,
                            weapon_type="machine_gun",
                            color=(255, 180, 50))]
 
@@ -99,9 +99,9 @@ class Sniper(Weapon):
     fire_rate = 0.4
 
     def _make_projectiles(self, x, y, angle):
-        vx, vy = self._vel(2800.0, angle)
+        vx, vy = self._vel(700.0, angle)
         return [Projectile(x=x, y=y, vx=vx, vy=vy,
-                           damage=55.0, lifetime=3.0,
+                           damage=100.0, lifetime=3.0,
                            pierce=True,
                            weapon_type="sniper",
                            color=(180, 80, 255))]
@@ -114,12 +114,12 @@ class Bazooka(Weapon):
     fire_rate = 0.3
 
     def _make_projectiles(self, x, y, angle):
-        vx, vy = self._vel(640.0, angle)
+        vx, vy = self._vel(160.0, angle)
         return [Projectile(x=x, y=y, vx=vx, vy=vy,
                            damage=0.0, lifetime=5.0,
                            explodes=True,
-                           explosion_radius=320.0,
-                           explosion_damage=600.0,
+                           explosion_radius=160.0,
+                           explosion_damage=300.0,
                            fuse=3.0,
                            weapon_type="bazooka",
                            color=(255, 100, 30))]
@@ -129,10 +129,10 @@ class Bazooka(Weapon):
 
 class Shotgun(Weapon):
     """7 pellets in a cone; damage falls off with distance."""
-    fire_rate  = 0.8
+    fire_rate  = 1.5
     _pellets   = 7
     _cone      = math.radians(22)
-    _base_dmg  = 30.0
+    _base_dmg  = 100.0
     _range     = 1120.0
 
     def _make_projectiles(self, x, y, angle):
@@ -140,7 +140,7 @@ class Shotgun(Weapon):
         for i in range(self._pellets):
             t     = i / (self._pellets - 1) if self._pellets > 1 else 0.5
             a     = angle + self._cone * (t * 2 - 1)
-            vx, vy = self._vel(960.0, a)
+            vx, vy = self._vel(240.0, a)
             projs.append(Projectile(
                 x=x, y=y, vx=vx, vy=vy,
                 damage=self._base_dmg, lifetime=1.2,
