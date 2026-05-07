@@ -370,7 +370,7 @@ class WaterGame:
                 e.x += e.vx * dt
                 e.y  = (e.y + e.vy * dt) % self.world_h
                 if e.x < 0:
-                    e.hp = 0.0          # swept off the left edge → dead
+                    e.x = float(self.world_w)
                 elif e.x > self.world_w:
                     e.x = float(self.world_w)
             elif self.topology == "bounded" or self.entity_barriers:
