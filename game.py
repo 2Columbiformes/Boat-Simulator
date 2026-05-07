@@ -343,7 +343,8 @@ class WaterGame:
         for e in self.entities:
             if e.static or not e.alive:
                 continue
-            gx = e.x / CELL_W;  gy = e.y / CELL_H
+            gx = e.x / CELL_W;  
+            gy = e.y / CELL_H
             gr = e.radius / max(CELL_W, CELL_H)
             self.water.splash(gx, gy, -DISPLACE_AMP * e.mass, gr)
             spd = math.hypot(e.vx, e.vy)
@@ -366,8 +367,8 @@ class WaterGame:
                 e.ax = e.ay = 0.0;  continue
             e.vx += e.ax * dt;  e.vy += e.ay * dt
             if self.survival and self._current_force > 0:
-                # Classic survival: x has a death zone, y wraps
-                e.x += e.vx * dt
+                # u
+                e.x  = (e.x + e.vx * dt) % self.world_w
                 e.y  = (e.y + e.vy * dt) % self.world_h
                 if e.x < 0:
                     e.x = float(self.world_w)
@@ -375,11 +376,17 @@ class WaterGame:
                     e.x = float(self.world_w)
             elif self.topology == "bounded" or self.entity_barriers:
                 e.x += e.vx * dt;  e.y += e.vy * dt
-                if e.x < e.radius:              e.x = e.radius;             e.vx = abs(e.vx)
-                elif e.x > self.world_w - e.radius: e.x = self.world_w - e.radius; e.vx = -abs(e.vx)
-                if e.y < e.radius:              e.y = e.radius;             e.vy = abs(e.vy)
+                if e.x < e.radius:              
+                    e.x = e.radius
+                    e.vx = abs(e.vx)
+                elif e.x > self.world_w - e.radius: 
+                    e.x = self.world_w - e.radius
+                    e.vx = -abs(e.vx)
+                if e.y < e.radius:              
+                    e.y = e.radius
+                    e.vy = abs(e.vy)
                 elif e.y > self.world_h - e.radius: e.y = self.world_h - e.radius; e.vy = -abs(e.vy)
-            else:  # torus and survival-without-current: wrap both axes
+            else:  # wrap both axes
                 e.x = (e.x + e.vx * dt) % self.world_w
                 e.y = (e.y + e.vy * dt) % self.world_h
             e.ax = 0.0;  e.ay = 0.0

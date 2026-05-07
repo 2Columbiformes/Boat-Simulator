@@ -1,35 +1,35 @@
 import numpy as np
 
-#  Window & grid 
-WIDTH, HEIGHT   = 800, 600          # Screen resolution in pixels
-WORLD_W, WORLD_H = WIDTH, HEIGHT    # World size matches screen (no camera scrolling)
-GRID_W, GRID_H   = 100*2, 75*2      # Simulation grid resolution (200×150)
-CELL_W  = WORLD_W // GRID_W         # Pixel width of each grid cell (8 px)
-CELL_H  = WORLD_H // GRID_H         # Pixel height of each grid cell (8 px)
-FPS     = 60                        # Simulation update rate
+#  Window & grid
+WIDTH, HEIGHT = 800, 600          # Screen resolution in pixels
+WORLD_W, WORLD_H = WIDTH, HEIGHT  # World size matches screen (no camera scrolling)
+GRID_W, GRID_H = 100*2, 75*2     # Simulation grid resolution (200×150)
+CELL_W = WORLD_W // GRID_W        # Pixel width of each grid cell (8 px)
+CELL_H = WORLD_H // GRID_H        # Pixel height of each grid cell (8 px)
+FPS = 60                          # Simulation update rate
 
 #  Wave physics
-WAVE_SPEED   = 0.4   # Wave propagation speed (CFL must be < 1/sqrt(2))
-DAMPING      = 0.99  # Global energy loss per frame
-SPLASH_AMP   = 0.005 # Default splash amplitude
-SPLASH_R     = 10    # Default splash radius (grid units)
+WAVE_SPEED = 0.4   # Wave propagation speed (CFL must be < 1/sqrt(2))
+DAMPING = 0.99     # Global energy loss per frame
+SPLASH_AMP = 0.005 # Default splash amplitude
+SPLASH_R = 10      # Default splash radius (grid units)
 
 # Numerical stabilization
-VISCOSITY    = 0.1   # Laplacian diffusion to damp high-frequency noise
-MAX_H        = 0.05  # Hard clamp on height values to prevent instability
+VISCOSITY = 0.1  # Laplacian diffusion to damp high-frequency noise
+MAX_H = 0.05     # Hard clamp on height values to prevent instability
 
-#  Entity–water coupling 
-WAVE_GRAD_K  = 7000.0   # Strength of water gradient force on entities
-DRAG_K       = 0.02     # Drag force applied to entities
-DISPLACE_AMP = 0.0001   # How much entities displace water
-RIPPLE_AMP   = 0.0005   # Ripple amplitude caused by entity movement
+#  Entity–water coupling
+WAVE_GRAD_K = 7000.0  # Strength of water gradient force on entities
+DRAG_K = 0.02         # Drag force applied to entities
+DISPLACE_AMP = 0.0001 # How much entities displace water
+RIPPLE_AMP = 0.0005   # Ripple amplitude caused by entity movement
 
-#  Rendering palette 
-COLOR_DEEP    = np.array([8,   24,  80],  dtype=np.float32)
-COLOR_MID     = np.array([24,  80,  150], dtype=np.float32)
-COLOR_SHALLOW = np.array([60,  170, 230], dtype=np.float32)
-COLOR_FOAM    = np.array([220, 245, 255], dtype=np.float32)
-COLOR_CREST   = np.array([200, 230, 255], dtype=np.float32)
+#  Rendering palette
+COLOR_DEEP = np.array([8, 24, 80], dtype=np.float32)
+COLOR_MID = np.array([24, 80, 150], dtype=np.float32)
+COLOR_SHALLOW = np.array([60, 170, 230], dtype=np.float32)
+COLOR_FOAM = np.array([220, 245, 255], dtype=np.float32)
+COLOR_CREST = np.array([200, 230, 255], dtype=np.float32)
 
 
 class WaterGrid:
@@ -45,10 +45,10 @@ class WaterGrid:
     def __init__(self, grid_h: int = GRID_H, grid_w: int = GRID_W):
         self.grid_h = grid_h
         self.grid_w = grid_w
-        self.c2     = WAVE_SPEED ** 2                 # Precompute c^2 for wave equation
-        self.h      = np.zeros((grid_h, grid_w), dtype=np.float32)  # Current height
+        self.c2 = WAVE_SPEED ** 2                                    # Precompute c^2 for wave equation
+        self.h = np.zeros((grid_h, grid_w), dtype=np.float32)       # Current height
         self.h_prev = np.zeros((grid_h, grid_w), dtype=np.float32)  # Previous height
-        self.fixed  = np.zeros((grid_h, grid_w), dtype=bool)        # Obstacle mask
+        self.fixed = np.zeros((grid_h, grid_w), dtype=bool)         # Obstacle mask
 
 
     # Discrete 5‑point Laplacian (periodic wrapping)
@@ -59,7 +59,7 @@ class WaterGrid:
         return (
             np.roll(h, -1, axis=0) + np.roll(h, 1, axis=0) +   # vertical neighbors
             np.roll(h, -1, axis=1) + np.roll(h, 1, axis=1) +   # horizontal neighbors
-            -4.0 * h                                           # center weight
+            -4.0 * h                                             # center weight
         )
 
 
@@ -89,7 +89,7 @@ class WaterGrid:
 
         # Rotate buffers for next frame
         self.h_prev = self.h
-        self.h      = h_new
+        self.h = h_new
 
 
     # Inject a Gaussian splash centered at (gx, gy)
@@ -113,7 +113,7 @@ class WaterGrid:
         dist2 = (dx * dx + dy * dy).astype(np.float32)
 
         # Splash radius and Gaussian width
-        r2     = max(radius, 0.5) ** 2
+        r2 = max(radius, 0.5) ** 2
         sigma2 = (radius / 2.0) ** 2 if radius > 0.5 else 0.25
 
         # Mask of affected cells
@@ -136,7 +136,7 @@ class WaterGrid:
         gx = gx % self.grid_w
         gy = gy % self.grid_h
 
-        ys, xs = np.ogrid[:self.grid_h, :self.grid_w] # open grid, 
+        ys, xs = np.ogrid[:self.grid_h, :self.grid_w] # open grid,
 
         # Toroidal distances
         dx = (xs - gx).astype(np.float32)
@@ -145,12 +145,12 @@ class WaterGrid:
         dy = (ys - gy).astype(np.float32)
         dy -= self.grid_h * np.round(dy / self.grid_h)
 
-        # Mark cells inside radius as fixed  
-        self.fixed[dx * dx + dy * dy < radius ** 2] = True 
+        # Mark cells inside radius as fixed
+        self.fixed[dx * dx + dy * dy < radius ** 2] = True
         # selects all elements where the mask is True and assigns True to them
 
         # Force height to zero for obstacles
-        self.h[self.fixed]      = 0.0
+        self.h[self.fixed] = 0.0
         self.h_prev[self.fixed] = 0.0
 
 

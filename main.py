@@ -50,7 +50,7 @@ def _build_game(lvl, weapon_override=None) -> WaterGame:
     )
     px, py = lvl.player_start
     game.add_entity(x=px, y=py, mass=2.0, radius=21,
-                    color=(50, 220, 80), controllable=True, max_hp=10000, name="player",
+                    color=(50, 220, 80), controllable=True, max_hp=5000, name="player",
                     wave_grad_k=10.0)
     # Fresh layout each replay when the level has a randomizing factory
     if lvl.obstacle_factory is not None:
